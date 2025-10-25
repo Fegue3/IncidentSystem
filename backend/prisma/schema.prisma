@@ -1,3 +1,7 @@
+// ---------------------------
+// Prisma schema (fixes applied)
+// ---------------------------
+
 //TBD
 
 generator client {
@@ -8,6 +12,10 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
+// ---------------------------
+// Enums
+// ---------------------------
 
 enum IncidentStatus {
   NEW
@@ -26,27 +34,238 @@ enum Priority {
   P4
 }
 
+enum Role {
+  REPORTER
+  AGENT
+  ADMIN
+}
+
+enum Provider {
+  NAGIOS
+  DATADOG
+  PROMETHEUS
+  OTHER
+}
+
+enum TimelineEventType {
+  STATUS_CHANGE
+  COMMENT
+  ASSIGNMENT
+  FIELD_UPDATE
+}
+
+// ---------------------------
+// Core models
+// ---------------------------
+
 model User {
-  id        String    @id @default(cuid())
-  email     String    @unique
+  id        String   @id @default(cuid())
+  email     String   @unique
   name      String
   password  String
-  role      String    @default("REPORTER")
-  incidents Incident[] @relation("Reporter")
-  assigned  Incident[] @relation("Assignee")
-  createdAt DateTime  @default(now())
+  role      Role     @default(REPORTER)
+
+  // Auth helpers
+  refreshTokenHash  String?
+  resetTokenHash    String?
+  resetTokenExpires DateTime?
+
+  // Relations
+  incidents   Incident[] @relation("Reporter")
+  assigned    Incident[] @relation("Assignee")
+  comments    IncidentComment[]
+  subscriptions NotificationSubscription[]
+  teams       Team[]     @relation("TeamMembers")
+  // lado oposto do author nos eventos de timeline
+  timelineAuthored IncidentTimelineEvent[] @relation("TimelineAuthor")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([role])
+  @@index([createdAt])
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  members   User[]   @relation("TeamMembers")
+  incidents Incident[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Incident {
   id          String         @id @default(cuid())
   title       String
   description String
+
   status      IncidentStatus @default(NEW)
   priority    Priority       @default(P3)
+
   reporter    User           @relation("Reporter", fields: [reporterId], references: [id])
   reporterId  String
+
   assignee    User?          @relation("Assignee", fields: [assigneeId], references: [id])
   assigneeId  String?
+
+  team        Team?          @relation(fields: [teamId], references: [id])
+  teamId      String?
+
+  // Categorization
+  categories  CategoryOnIncident[]
+  // M-N implícito: sem fields/references; só o nome da relação dos dois lados
+  tags        Tag[]          @relation("IncidentTags")
+
+  // Timeline & comments
+  timeline    IncidentTimelineEvent[]
+  comments    IncidentComment[]
+
+  // Integrations / external sources
+  sources     IncidentSource[]
+
+  // Subscriptions (lado oposto)
+  subscriptions NotificationSubscription[]
+
+  // Useful timestamps for metrics
+  triagedAt    DateTime?
+  inProgressAt DateTime?
+  resolvedAt   DateTime?
+  closedAt     DateTime?
+
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
+
+  @@index([status, priority])
+  @@index([assigneeId])
+  @@index([reporterId])
+  @@index([teamId])
+  @@index([createdAt])
+}
+
+model IncidentTimelineEvent {
+  id         String            @id @default(cuid())
+  incident   Incident          @relation(fields: [incidentId], references: [id])
+  incidentId String
+
+  // author com lado oposto no User
+  author     User?             @relation("TimelineAuthor", fields: [authorId], references: [id])
+  authorId   String?
+
+  type       TimelineEventType
+  fromStatus IncidentStatus?
+  toStatus   IncidentStatus?
+  message    String?
+
+  createdAt  DateTime          @default(now())
+
+  @@index([incidentId, createdAt])
+}
+
+model IncidentComment {
+  id         String   @id @default(cuid())
+  incident   Incident @relation(fields: [incidentId], references: [id])
+  incidentId String
+
+  author     User     @relation(fields: [authorId], references: [id])
+  authorId   String
+
+  body       String
+  createdAt  DateTime @default(now())
+
+  @@index([incidentId, createdAt])
+}
+
+model Category {
+  id          String                @id @default(cuid())
+  name        String                @unique
+  description String?
+
+  incidents   CategoryOnIncident[]
+  // lado oposto de subscriptions por categoria
+  subscriptions NotificationSubscription[]
+
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+}
+
+model CategoryOnIncident {
+  incident   Incident @relation(fields: [incidentId], references: [id])
+  incidentId String
+
+  category   Category @relation(fields: [categoryId], references: [id])
+  categoryId String
+
+  assignedAt DateTime @default(now())
+
+  @@id([incidentId, categoryId])
+}
+
+model Tag {
+  id        String     @id @default(cuid())
+  label     String     @unique
+  // M-N implícito: lado oposto com o mesmo nome da relação
+  incidents Incident[] @relation("IncidentTags")
+
+  createdAt DateTime   @default(now())
+}
+
+// ---------------------------
+// Integrations
+// ---------------------------
+
+model IntegrationSource {
+  id          String   @id @default(cuid())
+  provider    Provider
+  name        String
+  baseUrl     String?
+  apiKey      String?
+
+  incidents   IncidentSource[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([provider])
+}
+
+model IncidentSource {
+  id            String             @id @default(cuid())
+  incident      Incident           @relation(fields: [incidentId], references: [id])
+  incidentId    String
+
+  integration   IntegrationSource  @relation(fields: [integrationId], references: [id])
+  integrationId String
+
+  externalId    String
+  payload       Json?
+
+  createdAt     DateTime @default(now())
+
+  @@unique([integrationId, externalId])
+  @@index([incidentId])
+}
+
+// ---------------------------
+// Notifications
+// ---------------------------
+
+model NotificationSubscription {
+  id         String    @id @default(cuid())
+  user       User      @relation(fields: [userId], references: [id])
+  userId     String
+
+  // subs a um incidente específico (opcional)
+  incident   Incident? @relation(fields: [incidentId], references: [id])
+  incidentId String?
+
+  // subs por categoria (opcional)
+  category   Category? @relation(fields: [categoryId], references: [id])
+  categoryId String?
+
+  createdAt  DateTime  @default(now())
+
+  @@unique([userId, incidentId, categoryId])
+  @@index([userId])
 }
