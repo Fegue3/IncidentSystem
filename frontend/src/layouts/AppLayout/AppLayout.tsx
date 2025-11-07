@@ -1,4 +1,4 @@
-import type { PropsWithChildren } from 'react'   // 👈 troca para import type
+import type { PropsWithChildren } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 import './AppLayout.css'
 
