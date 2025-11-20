@@ -10,7 +10,7 @@ export class UsersService {
     const exists = await this.repo.findByEmail(email);
     if (exists) throw new BadRequestException('Email já registado');
     const hash = await bcrypt.hash(password, 12);
-    return this.repo.create({ email, password: hash, name: name ?? '', role: 'REPORTER' as any });
+    return this.repo.create({ email, password: hash, name: name ?? '', role: 'USER' as any });
   }
 
   findByEmail(email: string) { return this.repo.findByEmail(email); }
