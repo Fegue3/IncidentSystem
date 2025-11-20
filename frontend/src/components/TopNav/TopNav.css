@@ -1,0 +1,40 @@
+.topnav {
+  display: flex;
+  gap: 18px;
+}
+
+.topnav__link {
+  position: relative;
+  font-size: 13px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  padding-bottom: 6px;
+  color: rgba(255, 255, 255, 0.7);
+  transition: color 150ms ease-in-out;
+}
+
+.topnav__link::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 100%;
+  background: var(--color-copper);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 180ms ease-out;
+}
+
+.topnav__link:hover {
+  color: #ffffff;
+}
+
+.topnav__link--active {
+  color: #ffffff;
+}
+
+.topnav__link--active::after {
+  transform: scaleX(1);
+}

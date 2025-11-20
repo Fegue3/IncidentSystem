@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useMemo, useState, useEffect } from "react";
+import React, { createContext, useContext, useEffect, useState } from "react";
 import { AuthAPI, getAuth, setAuth, clearAuth } from "../services/api";
 
 type AuthState = {
@@ -15,7 +15,9 @@ type AuthContextType = AuthState & {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => {
   const [state, setState] = useState<AuthState>(() => getAuth());
 
   useEffect(() => {
@@ -34,6 +36,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const register = async (name: string, email: string, password: string) => {
     const data = await AuthAPI.register(name, email, password);
     const gotTokens = data?.accessToken || data?.refreshToken;
+
     if (gotTokens) {
       setState({
         user: data.user ?? null,
@@ -50,10 +53,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setState({ user: null, accessToken: null, refreshToken: null });
   };
 
-  const value = useMemo(() => ({ ...state, login, register, logout }), [state]);
+  const value: AuthContextType = {
+    ...state,
+    login,
+    register,
+    logout,
+  };
+
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth must be used within AuthProvider");

@@ -1,0 +1,133 @@
+.account {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.account__eyebrow {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: #6b7280;
+  margin-bottom: 4px;
+}
+
+.account__title {
+  font-size: 26px;
+  margin-bottom: 6px;
+}
+
+.account__subtitle {
+  font-size: 14px;
+  color: #4b5563;
+  max-width: 620px;
+}
+
+.account__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.account-card {
+  background: #ffffff;
+  border-radius: var(--radius-md);
+  padding: 16px 18px 18px;
+  border: 1px solid rgba(27, 42, 65, 0.12);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.account-card--danger {
+  border-color: rgba(217, 83, 79, 0.5);
+}
+
+.account-card__title {
+  font-size: 16px;
+  margin-bottom: 4px;
+}
+
+.account-card__label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: #6b7280;
+}
+
+.account-card__value {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-navy);
+}
+
+.account-card__text {
+  font-size: 14px;
+  color: #4b5563;
+}
+
+.account-card__hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.account-card__error {
+  font-size: 13px;
+  color: #b91c1c;
+}
+
+/* Botões */
+
+.account-btn {
+  margin-top: 8px;
+  align-self: flex-start;
+  padding: 9px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    background 140ms ease-in-out,
+    color 140ms ease-in-out,
+    transform 120ms ease-in-out,
+    box-shadow 140ms ease-in-out,
+    border-color 140ms ease-in-out;
+}
+
+.account-btn--secondary {
+  background: transparent;
+  border-color: var(--color-navy);
+  color: var(--color-navy);
+}
+
+.account-btn--secondary:hover {
+  background: rgba(27, 42, 65, 0.06);
+}
+
+.account-btn--danger {
+  background: #d9534f;
+  color: #ffffff;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.16);
+}
+
+.account-btn--danger:hover:not(:disabled) {
+  background: #c33f3b;
+  transform: translateY(-1px);
+}
+
+.account-btn--danger:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+@media (max-width: 900px) {
+  .account__grid {
+    grid-template-columns: 1fr;
+  }
+}

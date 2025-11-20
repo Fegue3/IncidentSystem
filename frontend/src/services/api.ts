@@ -7,18 +7,23 @@ type AuthBag = {
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:3000/api";
 
 const AUTH_KEY = "auth";
+
 export function getAuth(): AuthBag {
   const raw = localStorage.getItem(AUTH_KEY);
-  return raw ? JSON.parse(raw) : { user: null, accessToken: null, refreshToken: null };
+  return raw
+    ? JSON.parse(raw)
+    : { user: null, accessToken: null, refreshToken: null };
 }
+
 export function setAuth(bag: AuthBag) {
   localStorage.setItem(AUTH_KEY, JSON.stringify(bag));
 }
+
 export function clearAuth() {
   localStorage.removeItem(AUTH_KEY);
 }
 
-function authHeader() {
+function authHeader(): Record<string, string> {
   const { accessToken } = getAuth();
   return accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
 }
@@ -26,15 +31,17 @@ function authHeader() {
 type FetchOptions = RequestInit & { auth?: boolean; _retry?: boolean };
 
 export async function api(path: string, options: FetchOptions = {}) {
-  const headers: HeadersInit = {
+  const headers = {
     "Content-Type": "application/json",
     ...(options.auth ? authHeader() : {}),
     ...(options.headers || {}),
   };
 
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+
   if (res.status === 401 && options.auth && !options._retry) {
     const { refreshToken } = getAuth();
+
     if (refreshToken) {
       try {
         const refreshRes = await fetch(`${API_BASE}/auth/refresh`, {
@@ -42,32 +49,52 @@ export async function api(path: string, options: FetchOptions = {}) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ refreshToken }),
         });
+
         if (refreshRes.ok) {
           const data = await refreshRes.json();
           const current = getAuth();
+
           setAuth({
             user: data.user ?? current.user,
             accessToken: data.accessToken ?? current.accessToken,
             refreshToken: data.refreshToken ?? current.refreshToken,
           });
+
           return api(path, { ...options, _retry: true });
         }
-      } catch {}
+      } catch (err) {
+        console.error("Refresh token failed", err);
+      }
     }
+
     clearAuth();
   }
 
-  const data = await res.json().catch(() => ({}));
+  const data = await res.json().catch(() => ({} as unknown));
+
   if (!res.ok) {
-    const msg = data?.message ?? `HTTP ${res.status}`;
+    const body = data as { message?: unknown };
+
+    let msg: unknown = body.message;
+    if (msg == null) {
+      msg = `HTTP ${res.status}`;
+    }
+
     throw new Error(Array.isArray(msg) ? msg.join(", ") : String(msg));
   }
+
   return data;
 }
 
 export const AuthAPI = {
   login: (email: string, password: string) =>
-    api("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+    api("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
   register: (name: string, email: string, password: string) =>
-    api("/auth/register", { method: "POST", body: JSON.stringify({ name, email, password }) }),
+    api("/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ name, email, password }),
+    }),
 };
