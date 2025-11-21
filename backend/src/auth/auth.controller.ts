@@ -4,7 +4,7 @@ import { RegisterDto, LoginDto, ChangePasswordDto, ResetPasswordDto } from './dt
 import { AccessJwtGuard } from './guards/access-jwt.guard';
 import { RefreshJwtGuard } from './guards/refresh-jwt.guard';
 
-type ReqUser = { sub: string; email: string; refreshToken?: string };
+type ReqUser = { sub: string; email: string; role?: string; refreshToken?: string };
 
 @Controller('auth')
 export class AuthController {
@@ -25,8 +25,11 @@ export class AuthController {
     return this.auth.refresh(req.user.sub, b?.refreshToken ?? req.user.refreshToken!);
   }
 
-  @Get('me') @UseGuards(AccessJwtGuard)
-  me(@Req() req: { user: ReqUser }) { return { userId: req.user.sub, email: req.user.email }; }
+  @Get('me')
+@UseGuards(AccessJwtGuard)
+me(@Req() req: { user: ReqUser }) { 
+  return {userId: req.user.sub,email: req.user.email,role: req.user.role,};
+}
 
   @Post('change-password') @UseGuards(AccessJwtGuard)
   changePassword(@Req() req: { user: ReqUser }, @Body() dto: ChangePasswordDto) {
