@@ -2,8 +2,8 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 
-#OpenSSL compatível para o Prisma
-RUN apk add --no-cache openssl1.1-compat
+# (JÁ NÃO PRECISAS DISTO)
+# RUN apk add --no-cache openssl1.1-compat
 
 # Instala só a partir dos manifests para melhor cache
 COPY package*.json ./
@@ -26,7 +26,8 @@ FROM node:20-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
-RUN apk add --no-cache openssl1.1-compat
+# (JÁ NÃO PRECISAS DISTO)
+# RUN apk add --no-cache openssl1.1-compat
 
 # Copia apenas o necessário
 COPY package*.json ./
