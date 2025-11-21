@@ -2,6 +2,9 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 
+# OpenSSL para o Prisma detectar a versão e usar o binary certo (openssl 3)
+RUN apk add --no-cache openssl
+
 # Instala só a partir dos manifests para melhor cache
 COPY package*.json ./
 RUN npm ci
@@ -23,19 +26,18 @@ FROM node:20-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
+# Também aqui precisamos de OpenSSL para o schema engine/migrate
+RUN apk add --no-cache openssl
+
 # Copia apenas o necessário
 COPY package*.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-# (opcional: manter prisma/ para migrate deploy no arranque)
 COPY --from=build /app/prisma ./prisma
 
-# Garante que o Prisma CLI existe no runtime (remove se o "prisma" já for dep de produção)
+# Garante que o Prisma CLI existe no runtime
 RUN npm i -g prisma
 
-# Porta da API
 EXPOSE 3000
 
-# Arranque padrão: se houver DATABASE_URL, aplica migrations; depois arranca a API
-# Observação: usar "sh -lc" permite usar a expansão && e o teste do shell.
 CMD [ "sh", "-lc", "if [ -n \"$DATABASE_URL\" ]; then echo \"🗄️  Running Prisma migrate deploy...\"; npx prisma migrate deploy; else echo \"⚠️  DATABASE_URL not set; skipping prisma migrate deploy.\"; fi && node dist/main.js" ]

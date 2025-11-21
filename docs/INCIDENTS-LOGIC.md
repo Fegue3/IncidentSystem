@@ -354,3 +354,4 @@ A lógica de incidentes descrita aqui é compatível com estes cenários:
 - Criação automática de incidentes com dados do alerta.
 - Atualização automática de timeline (ex: quando se envia update para status page).
 - Export de timeline e CAPAs para auditoria.
+
