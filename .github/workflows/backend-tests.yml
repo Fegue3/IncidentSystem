@@ -1,0 +1,32 @@
+name: Backend Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        
+      - name: Show Docker version
+        run: docker version
+
+      - name: Start dependencies (Postgres + Redis)
+        run: docker compose -f docker-compose.yml up -d postgres redis
+
+      - name: Run backend tests inside Docker
+        run: |
+          docker compose -f docker-compose.yml run --rm backend sh -lc "
+            npm ci &&
+            npx prisma migrate deploy &&
+            npm test
+          "
+
+      - name: Shutdown docker-compose
+        if: always()
+        run: docker compose -f docker-compose.yml down -v
