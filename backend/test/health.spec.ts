@@ -7,14 +7,18 @@ describe('Health E2E', () => {
   let app: INestApplication;
 
   beforeAll(async () => {
-    const mod = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
+  // garantir secret para o JwtStrategy durante os testes
+  process.env.JWT_ACCESS_SECRET ??= 'test-secret';
 
-    app = mod.createNestApplication();
-    app.setGlobalPrefix('api'); // usamos /api/health
-    await app.init();
-  });
+  const mod = await Test.createTestingModule({
+    imports: [AppModule],
+  }).compile();
+
+  app = mod.createNestApplication();
+  app.setGlobalPrefix('api');
+  await app.init();
+});
+
 
   afterAll(async () => {
     await app.close();
