@@ -1,3 +1,4 @@
+// test/auth.spec.ts
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
@@ -9,8 +10,14 @@ describe('Auth E2E', () => {
   let prisma: PrismaService;
 
   beforeAll(async () => {
-    process.env.JWT_ACCESS_SECRET = 'a';
-    process.env.JWT_REFRESH_SECRET = 'b';
+    process.env.DATABASE_URL =
+      process.env.DATABASE_URL ??
+      'postgresql://postgres:postgres@localhost:5432/incidents';
+
+
+    // secrets mínimos para JWT nos testes
+    process.env.JWT_ACCESS_SECRET = process.env.JWT_ACCESS_SECRET ?? 'a';
+    process.env.JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET ?? 'b';
 
     const mod = await Test.createTestingModule({
       imports: [AppModule],
@@ -19,8 +26,8 @@ describe('Auth E2E', () => {
     app = mod.createNestApplication();
 
     app.setGlobalPrefix('api');
-
     app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
+
     await app.init();
 
     prisma = app.get(PrismaService);
