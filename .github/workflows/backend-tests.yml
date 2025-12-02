@@ -4,6 +4,7 @@ on:
   push:
     branches: [ main, develop ]
   pull_request:
+    branches: [ main, develop ]
 
 jobs:
   backend-tests:
@@ -12,21 +13,31 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
-        
+        with:
+          fetch-depth: 0   # SonarCloud curte ter history para ver "new code"
+
       - name: Show Docker version
         run: docker version
 
       - name: Start dependencies (Postgres + Redis)
         run: docker compose -f docker-compose.yml up -d postgres redis
 
-      - name: Run backend tests inside Docker
+      - name: Run backend tests inside Docker (with coverage)
         run: |
           docker compose -f docker-compose.yml run --rm backend sh -lc "
             npm ci &&
             npx prisma migrate deploy &&
-            npm test
+            npm run test:ci
           "
 
       - name: Shutdown docker-compose
         if: always()
         run: docker compose -f docker-compose.yml down -v
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@ffc3010689be73b8e5ae0c57ce35968afd7909e8
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # token automático do GitHub
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}     # secret que criaste no repo
+        with:
+          projectBaseDir: ./backend   # onde está o sonar-project.properties
