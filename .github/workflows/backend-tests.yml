@@ -41,3 +41,5 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}     # secret que criaste no repo
         with:
           projectBaseDir: ./backend   # onde está o sonar-project.properties
+
+          
