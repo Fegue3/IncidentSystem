@@ -1,5 +1,6 @@
 // frontend/src/services/teams.ts
 import { api } from "./api";
+import type { UserSummary } from "./users";
 
 export type TeamSummary = {
   id: string;
@@ -58,5 +59,24 @@ export const TeamsAPI = {
       auth: true,
       body: JSON.stringify({ userId }),
     });
+  },
+
+  /**
+   * NOVO: lista de membros de uma equipa (para escolher owner).
+   * Usa o endpoint GET /teams/:id/members.
+   */
+  listMembers: async (teamId: string): Promise<UserSummary[]> => {
+    const raw = await api(`/teams/${teamId}/members`, { auth: true });
+    const data = raw as {
+      id: string;
+      email: string;
+      name?: string | null;
+    }[];
+
+    return data.map((u) => ({
+      id: u.id,
+      email: u.email,
+      name: u.name ?? null,
+    }));
   },
 };

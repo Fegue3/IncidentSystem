@@ -1,3 +1,4 @@
+// frontend/src/services/incidents.ts
 import { api } from "./api";
 
 export type IncidentStatus =
@@ -9,7 +10,10 @@ export type IncidentStatus =
   | "CLOSED"
   | "REOPENED";
 
-export type Priority = "P1" | "P2" | "P3" | "P4";
+/**
+ * Severidade (SEV1–SEV4), igual ao enum Severity do backend.
+ */
+export type SeverityCode = "SEV1" | "SEV2" | "SEV3" | "SEV4";
 
 export type UserLite = {
   id: string;
@@ -27,7 +31,12 @@ export type IncidentSummary = {
   title: string;
   description: string;
   status: IncidentStatus;
-  priority: Priority;
+
+  /**
+   * Campo de severidade (SEV1–SEV4).
+   */
+  severity: SeverityCode;
+
   createdAt: string;
   reporter: UserLite;
   assignee?: UserLite | null;
@@ -60,13 +69,30 @@ export type IncidentDetails = IncidentSummary & {
 
 export type ListIncidentsParams = {
   teamId?: string;
+  // se mais tarde quiseres filtrar por severity/status/etc, acrescentas aqui
 };
 
 export type CreateIncidentInput = {
   title: string;
   description: string;
-  priority: Priority;
+
+  /**
+   * Severidade (SEV1–SEV4).
+   */
+  severity: SeverityCode;
+
   teamId?: string;
+
+  /** Owner inicial opcional (assignee) */
+  assigneeId?: string;
+};
+
+export type UpdateFieldsInput = {
+  /** Atualizar severidade (SEV) */
+  severity?: SeverityCode;
+
+  /** Atualizar responsável (owner) */
+  assigneeId?: string;
 };
 
 export type ChangeStatusInput = {
@@ -74,13 +100,49 @@ export type ChangeStatusInput = {
   message?: string;
 };
 
-export type UpdateFieldsInput = {
-  priority?: Priority;
-};
-
 export type AddCommentInput = {
   body: string;
 };
+
+/* ---------- Helpers de Severidade (SEV) ---------- */
+
+// ordem lógica: SEV1 mais crítico
+const SEVERITY_ORDER: Record<SeverityCode, number> = {
+  SEV1: 1,
+  SEV2: 2,
+  SEV3: 3,
+  SEV4: 4,
+};
+
+// label longo para selects
+const SEVERITY_LABEL: Record<SeverityCode, string> = {
+  SEV1: "SEV1 — Crítico",
+  SEV2: "SEV2 — Alto",
+  SEV3: "SEV3 — Médio",
+  SEV4: "SEV4 — Baixo",
+};
+
+// label curto para chips / badges
+const SEVERITY_SHORT_LABEL: Record<SeverityCode, string> = {
+  SEV1: "SEV1",
+  SEV2: "SEV2",
+  SEV3: "SEV3",
+  SEV4: "SEV4",
+};
+
+export function getSeverityOrder(code: SeverityCode): number {
+  return SEVERITY_ORDER[code] ?? 999;
+}
+
+export function getSeverityLabel(code: SeverityCode): string {
+  return SEVERITY_LABEL[code] ?? code;
+}
+
+export function getSeverityShortLabel(code: SeverityCode): string {
+  return SEVERITY_SHORT_LABEL[code] ?? code;
+}
+
+/* ---------- helpers internos ---------- */
 
 function buildQuery(params: ListIncidentsParams): string {
   const search = new URLSearchParams();
@@ -89,12 +151,15 @@ function buildQuery(params: ListIncidentsParams): string {
   return qs ? `?${qs}` : "";
 }
 
+/* ---------- API ---------- */
+
 export const IncidentsAPI = {
   async list(params: ListIncidentsParams = {}): Promise<IncidentSummary[]> {
     const result = await api(`/incidents${buildQuery(params)}`, {
       auth: true,
     });
 
+    // Backend já devolve `severity`, por isso é só cast.
     return result as IncidentSummary[];
   },
 
@@ -136,7 +201,7 @@ export const IncidentsAPI = {
   },
 
   /**
-   * Atualiza campos genéricos do incidente (neste momento só prioridade).
+   * Atualiza campos genéricos (neste momento: severidade e/ou owner).
    */
   async updateFields(
     id: string,
@@ -170,7 +235,6 @@ export const IncidentsAPI = {
     return result as IncidentComment;
   },
 
-  // --- NOVO: apagar incidente ---
   async delete(id: string): Promise<void> {
     await api(`/incidents/${id}`, {
       method: "DELETE",

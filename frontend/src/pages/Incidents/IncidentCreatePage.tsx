@@ -3,8 +3,13 @@ import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "./IncidentCreatePage.css";
-import { IncidentsAPI, type Priority } from "../../services/incidents";
+import {
+  IncidentsAPI,
+  type SeverityCode,
+  getSeverityLabel,
+} from "../../services/incidents";
 import { UsersAPI, type Me } from "../../services/users";
+import { useAuth } from "../../context/AuthContext";
 
 const TITLE_MAX_LENGTH = 120;
 const DESCRIPTION_MAX_LENGTH = 2000;
@@ -17,17 +22,25 @@ type MeWithTeam = Me & {
   } | null;
 };
 
+type OwnerMode = "none" | "self";
+
 export function IncidentCreatePage() {
   const navigate = useNavigate();
+  const { user } = useAuth(); // utilizador autenticado
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [priority, setPriority] = useState<Priority>("P3");
+
+  // Severidade (SEV1–SEV4)
+  const [severity, setSeverity] = useState<SeverityCode>("SEV3");
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [me, setMe] = useState<MeWithTeam | null>(null);
+
+  // modo de owner inicial: nenhum (default) ou o próprio
+  const [ownerMode, setOwnerMode] = useState<OwnerMode>("none");
 
   // carregar info do utilizador (para saber a equipa), sem mostrar nada no UI
   useEffect(() => {
@@ -82,11 +95,18 @@ export function IncidentCreatePage() {
 
       const teamId = me?.team?.id ?? selectedTeamFromStorage ?? undefined;
 
+      // calcula owner inicial
+      let assigneeId: string | undefined;
+      if (ownerMode === "self" && user) {
+        assigneeId = user.id;
+      }
+
       const incident = await IncidentsAPI.create({
         title: cleanTitle,
         description: cleanDescription,
-        priority,
+        severity,     // <<< já vai como SEV1–SEV4
         teamId,
+        assigneeId,   // opcional
       });
 
       navigate(`/incidents/${incident.id}`, { replace: true });
@@ -145,20 +165,60 @@ export function IncidentCreatePage() {
           </div>
 
           <aside className="incident-create__side">
-            {/* Só prioridade visível agora */}
+            {/* Severidade */}
             <label className="form-field">
-              <span className="form-field__label">Prioridade</span>
+              <span className="form-field__label">Severidade (SEV)</span>
               <select
                 className="form-field__select"
-                value={priority}
-                onChange={(e) => setPriority(e.target.value as Priority)}
+                value={severity}
+                onChange={(e) => setSeverity(e.target.value as SeverityCode)}
               >
-                <option value="P1">P1 — Crítico</option>
-                <option value="P2">P2 — Alto</option>
-                <option value="P3">P3 — Médio</option>
-                <option value="P4">P4 — Baixo</option>
+                {(["SEV1", "SEV2", "SEV3", "SEV4"] as SeverityCode[]).map(
+                  (code) => (
+                    <option key={code} value={code}>
+                      {getSeverityLabel(code)}
+                    </option>
+                  )
+                )}
               </select>
             </label>
+
+            {/* Responsável inicial */}
+            <div className="incident-create__owner">
+              <span className="form-field__label">
+                Responsável inicial (opcional)
+              </span>
+              <p className="form-field__hint">
+                Podes deixar o incidente sem owner ou assumir já a
+                responsabilidade.
+              </p>
+
+              <div className="incident-create__owner-options">
+                <label className="radio-pill">
+                  <input
+                    type="radio"
+                    name="ownerMode"
+                    value="none"
+                    checked={ownerMode === "none"}
+                    onChange={() => setOwnerMode("none")}
+                  />
+                  <span>Sem owner</span>
+                </label>
+
+                {user && (
+                  <label className="radio-pill">
+                    <input
+                      type="radio"
+                      name="ownerMode"
+                      value="self"
+                      checked={ownerMode === "self"}
+                      onChange={() => setOwnerMode("self")}
+                    />
+                    <span>Atribuir a mim</span>
+                  </label>
+                )}
+              </div>
+            </div>
           </aside>
         </div>
 

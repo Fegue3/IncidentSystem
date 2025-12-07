@@ -53,7 +53,7 @@ describe('IncidentsController', () => {
     const dto: CreateIncidentDto = {
       title: 'DB down',
       description: 'desc',
-      priority: undefined,
+      severity: undefined, // 👈 antes era priority
       assigneeId: undefined,
       teamId: undefined,
       categoryIds: [],
@@ -71,7 +71,7 @@ describe('IncidentsController', () => {
   it('findAll deve chamar service.findAll com query', async () => {
     const query: ListIncidentsDto = {
       status: undefined,
-      priority: undefined,
+      severity: undefined, // 👈 antes era priority
       assigneeId: undefined,
       teamId: undefined,
       search: 'db',

@@ -1,16 +1,15 @@
-// src/incidents/dto/list-incidents.dto.ts
 import { Transform } from 'class-transformer';
 import { IsEnum, IsOptional, IsString } from 'class-validator';
-import { IncidentStatus, Priority } from '@prisma/client';
+import { IncidentStatus, Severity } from '@prisma/client';
 
 export class ListIncidentsDto {
   @IsEnum(IncidentStatus)
   @IsOptional()
   status?: IncidentStatus;
 
-  @IsEnum(Priority)
+  @IsEnum(Severity)
   @IsOptional()
-  priority?: Priority;
+  severity?: Severity;
 
   @IsString()
   @IsOptional()

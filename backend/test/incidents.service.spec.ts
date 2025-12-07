@@ -2,7 +2,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   IncidentStatus,
-  Priority,
+  Severity,
   TimelineEventType,
 } from '@prisma/client';
 import { IncidentsService } from '../src/incidents/incidents.service';
@@ -16,7 +16,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 describe('IncidentsService', () => {
   let service: IncidentsService;
-  let prisma: any; // prisma como any para não chatear com mockResolvedValue
+  let prisma: any;
 
   beforeEach(async () => {
     const prismaMock: any = {
@@ -65,11 +65,11 @@ describe('IncidentsService', () => {
 
   // ---------- CREATE ----------
 
-  it('deve criar incidente com prioridade default P3 e status NEW', async () => {
+  it('deve criar incidente com severidade default SEV3 e status NEW', async () => {
     const dto: CreateIncidentDto = {
       title: 'DB down',
       description: 'Database unreachable',
-      priority: undefined,
+      severity: undefined,
       assigneeId: 'user-2',
       teamId: 'team-1',
       categoryIds: ['cat-1'],
@@ -81,7 +81,7 @@ describe('IncidentsService', () => {
       title: dto.title,
       description: dto.description,
       status: IncidentStatus.NEW,
-      priority: Priority.P3,
+      severity: Severity.SEV3,
     };
 
     prisma.incident.create.mockResolvedValue(createdIncident as any);
@@ -92,7 +92,7 @@ describe('IncidentsService', () => {
       data: expect.objectContaining({
         title: dto.title,
         description: dto.description,
-        priority: Priority.P3,
+        severity: Severity.SEV3,
         status: IncidentStatus.NEW,
         reporter: { connect: { id: 'user-1' } },
       }),
@@ -117,7 +117,7 @@ describe('IncidentsService', () => {
   it('deve listar incidentes com filtros (findAll)', async () => {
     const query: ListIncidentsDto = {
       status: IncidentStatus.NEW,
-      priority: Priority.P1,
+      severity: Severity.SEV1,
       assigneeId: 'user-2',
       teamId: 'team-1',
       search: 'db',
@@ -132,7 +132,7 @@ describe('IncidentsService', () => {
     expect(prisma.incident.findMany).toHaveBeenCalledWith({
       where: {
         status: IncidentStatus.NEW,
-        priority: Priority.P1,
+        severity: Severity.SEV1,
         assigneeId: 'user-2',
         teamId: 'team-1',
         OR: [
@@ -179,8 +179,8 @@ describe('IncidentsService', () => {
     const dto: UpdateIncidentDto = {
       title: 'Novo título',
       description: 'Nova descrição',
-      priority: Priority.P2,
-      assigneeId: 'user-2',
+      severity: Severity.SEV2,
+      // sem assigneeId aqui -> queremos FIELD_UPDATE, não ASSIGNMENT
       teamId: 'team-1',
       categoryIds: ['cat-1', 'cat-2'],
       tagIds: ['tag-1'],
@@ -206,7 +206,7 @@ describe('IncidentsService', () => {
       data: expect.objectContaining({
         title: 'Novo título',
         description: 'Nova descrição',
-        priority: Priority.P2,
+        severity: Severity.SEV2,
       }),
     });
 
@@ -219,6 +219,34 @@ describe('IncidentsService', () => {
     });
 
     expect(result.id).toBe('inc-1');
+  });
+
+  it('deve registar evento de ASSIGNMENT quando muda o responsável', async () => {
+    const dto: UpdateIncidentDto = {
+      assigneeId: 'user-2',
+    } as any;
+
+    prisma.incident.findUnique.mockResolvedValue({
+      id: 'inc-1',
+      status: IncidentStatus.NEW,
+      assigneeId: 'user-1',
+    } as any);
+
+    prisma.incident.update.mockResolvedValue({
+      id: 'inc-1',
+      assigneeId: 'user-2',
+    } as any);
+
+    await service.update('inc-1', dto, 'user-1');
+
+    expect(prisma.incidentTimelineEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        incidentId: 'inc-1',
+        authorId: 'user-1',
+        type: TimelineEventType.ASSIGNMENT,
+        message: 'Responsável atualizado',
+      }),
+    });
   });
 
   it('deve lançar NotFoundException ao atualizar incidente inexistente', async () => {
