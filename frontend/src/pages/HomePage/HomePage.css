@@ -77,6 +77,56 @@
   background: rgba(27, 42, 65, 0.06);
 }
 
+/* Barra de filtros */
+
+.dashboard__filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  background: #fdfbf7;
+  border: 1px solid rgba(27, 42, 65, 0.08);
+}
+
+.dashboard__filters-label {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #7b1f51;
+}
+
+.dashboard__filters-group {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+}
+
+.dashboard__filter-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(27, 42, 65, 0.18);
+  font-size: 12px;
+  background: #ffffff;
+  color: #9ca3af;
+}
+
+.dashboard__auto-refresh {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: none;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  cursor: default;
+  background: #ede9fe;
+  color: #4c1d95;
+}
+
 /* Status / mensagens */
 
 .dashboard__status-area {
@@ -105,7 +155,10 @@
   border-radius: var(--radius-md);
   padding: 16px 18px 18px;
   border: 1px solid rgba(27, 42, 65, 0.12);
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+  min-height: 520px;
 }
 
 .incident-column--open {
@@ -123,12 +176,26 @@
 .incident-column__header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  gap: 12px;
   margin-bottom: 8px;
+
+  min-height: 86px;
 }
 
 .incident-column__title {
   font-size: 16px;
+}
+
+.incident-column__counter {
+  font-weight: 400;
+  font-size: 14px;
+}
+
+.incident-column__hint {
+  font-size: 13px;
+  color: #4b5563;
+  margin-top: 2px;
 }
 
 .incident-column__badge {
@@ -144,9 +211,222 @@
   color: var(--color-navy);
 }
 
-.incident-column__hint {
+.incident-column__body {
+  margin-top: 6px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.incident-column__empty {
   font-size: 13px;
+  color: #6b7280;
+}
+
+/* Lista de incidentes */
+
+.incident-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 520px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.8) transparent;
+}
+
+.incident-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.incident-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.incident-list::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.9);
+  border-radius: 999px;
+}
+
+/* Cartão de incidente */
+
+.incident-card {
+  width: 100%;
+  text-align: left;
+  border: none;
+  cursor: pointer;
+  border-radius: 16px;
+  padding: 12px 14px;
+  background: #f7f3ec;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition:
+    background 120ms ease-in-out,
+    box-shadow 120ms ease-in-out,
+    transform 80ms ease-in-out;
+  min-height: 120px;
+  overflow: hidden;
+}
+
+.incident-card:hover {
+  background: #f1e8dd;
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.06);
+  transform: translateY(-1px);
+}
+
+/* topo: título */
+
+.incident-card__header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.incident-card__title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #111827;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* meio: descrição + chips */
+
+.incident-card__middle {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.incident-card__description-block {
+  flex: 1;
+  font-size: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.incident-card__label {
+  font-weight: 600;
+  color: #7b1f51;
+  margin-right: 2px;
+}
+
+.incident-card__value {
+  color: #374151;
+}
+
+.incident-card__description {
+  overflow-wrap: anywhere;
+}
+
+/* chips de estado/prioridade à direita */
+
+.incident-card__side {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.incident-card__status-chip,
+.incident-card__priority-chip {
+  font-size: 11px;
+  padding: 4px 14px;
+}
+
+/* fundo: meta consistente */
+
+.incident-card__footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: auto;
+  font-size: 11px;
   color: #4b5563;
+}
+
+.incident-card__meta-item {
+  display: flex;
+  gap: 4px;
+}
+
+/* Chips */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* status */
+
+.chip--status {
+  background: var(--color-grey-light);
+  color: var(--color-navy);
+}
+
+.chip--status-new,
+.chip--status-triaged,
+.chip--status-reopened {
+  background: rgba(255, 179, 71, 0.16);
+  color: #92400e;
+}
+
+.chip--status-in_progress,
+.chip--status-on_hold {
+  background: rgba(27, 42, 65, 0.12);
+  color: var(--color-navy);
+}
+
+.chip--status-resolved {
+  background: rgba(60, 157, 113, 0.14);
+  color: #065f46;
+}
+
+.chip--status-closed {
+  background: rgba(148, 163, 184, 0.3);
+  color: #111827;
+}
+
+/* priority */
+
+.chip--priority {
+  background: var(--color-grey-light);
+}
+
+.chip--priority-p1 {
+  background: rgba(217, 83, 79, 0.18);
+  color: #7f1d1d;
+}
+
+.chip--priority-p2 {
+  background: rgba(255, 179, 71, 0.18);
+  color: #92400e;
+}
+
+.chip--priority-p3 {
+  background: rgba(37, 99, 235, 0.16);
+  color: #1d4ed8;
+}
+
+.chip--priority-p4 {
+  background: rgba(148, 163, 184, 0.24);
+  color: #0f172a;
 }
 
 /* Responsivo */
@@ -160,6 +440,15 @@
     align-self: flex-start;
   }
 
+  .dashboard__filters {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .dashboard__filters-group {
+    width: 100%;
+  }
+
   .dashboard__columns {
     grid-template-columns: 1fr;
   }
@@ -168,5 +457,14 @@
 @media (max-width: 640px) {
   .dashboard__title {
     font-size: 24px;
+  }
+
+  .incident-card__middle {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .incident-card__side {
+    justify-content: flex-start;
   }
 }
