@@ -1,8 +1,6 @@
 // ---------------------------
-// Prisma schema (fixes applied)
+// Prisma schema (SEVERITY)
 // ---------------------------
-
-//TBD
 
 generator client {
   provider = "prisma-client-js"
@@ -27,11 +25,11 @@ enum IncidentStatus {
   REOPENED
 }
 
-enum Priority {
-  P1
-  P2
-  P3
-  P4
+enum Severity {
+  SEV1
+  SEV2
+  SEV3
+  SEV4
 }
 
 enum Role {
@@ -101,7 +99,7 @@ model Incident {
   description String
 
   status      IncidentStatus @default(NEW)
-  priority    Priority       @default(P3)
+  severity    Severity       @default(SEV3)
 
   reporter    User           @relation("Reporter", fields: [reporterId], references: [id])
   reporterId  String
@@ -136,7 +134,7 @@ model Incident {
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 
-  @@index([status, priority])
+  @@index([status, severity])
   @@index([assigneeId])
   @@index([reporterId])
   @@index([teamId])
