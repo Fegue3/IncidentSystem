@@ -91,7 +91,7 @@ export class IncidentsController {
     return this.incidentsService.unsubscribe(id, userId);
   }
 
-  // ---------- NOVO: apagar incidente ----------
+  // DELETE INCIDENT
   @Delete(':id')
   remove(@Param('id') id: string, @Req() req) {
     const userId = req.user.sub || req.user.id;

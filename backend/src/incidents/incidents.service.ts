@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import {
   IncidentStatus,
-  Priority,
+  Severity,
   TimelineEventType,
   Prisma,
 } from '@prisma/client';
@@ -76,7 +76,7 @@ export class IncidentsService {
     const data: Prisma.IncidentCreateInput = {
       title: dto.title,
       description: dto.description,
-      priority: dto.priority ?? Priority.P3,
+      severity: dto.severity ?? Severity.SEV3,
       status: IncidentStatus.NEW,
       reporter: { connect: { id: reporterId } },
       assignee: dto.assigneeId
@@ -97,10 +97,8 @@ export class IncidentsService {
         : undefined,
     };
 
-    // cria o incidente
     const incident = await this.prisma.incident.create({ data });
 
-    // criar evento de timeline + subscription do reporter
     await this.prisma.$transaction([
       this.prisma.incidentTimelineEvent.create({
         data: {
@@ -129,7 +127,7 @@ export class IncidentsService {
     const where: Prisma.IncidentWhereInput = {};
 
     if (query.status) where.status = query.status;
-    if (query.priority) where.priority = query.priority;
+    if (query.severity) where.severity = query.severity;
     if (query.assigneeId) where.assigneeId = query.assigneeId;
     if (query.teamId) where.teamId = query.teamId;
 
@@ -191,15 +189,23 @@ export class IncidentsService {
     if (!incident) throw new NotFoundException('Incident not found');
 
     const data: Prisma.IncidentUpdateInput = {};
+    let assigneeChanged = false;
 
     if (dto.title !== undefined) data.title = dto.title;
     if (dto.description !== undefined) data.description = dto.description;
-    if (dto.priority !== undefined) data.priority = dto.priority;
+    if (dto.severity !== undefined) data.severity = dto.severity;
+
     if (dto.assigneeId !== undefined) {
-      data.assignee = dto.assigneeId
-        ? { connect: { id: dto.assigneeId } }
+      const newAssigneeId = dto.assigneeId || null;
+      if (newAssigneeId !== incident.assigneeId) {
+        assigneeChanged = true;
+      }
+
+      data.assignee = newAssigneeId
+        ? { connect: { id: newAssigneeId } }
         : { disconnect: true };
     }
+
     if (dto.teamId !== undefined) {
       data.team = dto.teamId
         ? { connect: { id: dto.teamId } }
@@ -207,7 +213,6 @@ export class IncidentsService {
     }
 
     if (dto.categoryIds) {
-      // limpar categorias antigas e recriar simples
       await this.prisma.categoryOnIncident.deleteMany({
         where: { incidentId: id },
       });
@@ -219,25 +224,31 @@ export class IncidentsService {
     }
 
     if (dto.tagIds) {
-      // reset tags
       data.tags = {
         set: dto.tagIds.map((tagId) => ({ id: tagId })),
       };
     }
 
-    const updated = await this.prisma.incident.update({
-      where: { id },
-      data,
-    });
-
-    await this.prisma.incidentTimelineEvent.create({
-      data: {
-        incidentId: id,
-        authorId: userId,
-        type: TimelineEventType.FIELD_UPDATE,
-        message: 'Fields updated',
-      },
-    });
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.incident.update({
+        where: { id },
+        data,
+      }),
+      this.prisma.incidentTimelineEvent.create({
+        data: {
+          incidentId: id,
+          authorId: userId,
+          type: assigneeChanged
+            ? TimelineEventType.ASSIGNMENT
+            : TimelineEventType.FIELD_UPDATE,
+          message: assigneeChanged
+            ? dto.assigneeId
+              ? 'Responsável atualizado'
+              : 'Responsável removido'
+            : 'Campos atualizados',
+        },
+      }),
+    ]);
 
     return updated;
   }
@@ -257,7 +268,6 @@ export class IncidentsService {
 
     const tsField = this.getStatusTimestampField(to);
     if (tsField && !incident[tsField as keyof typeof incident]) {
-      // só mete timestamp se ainda não estiver preenchido
       (updateData as any)[tsField] = new Date();
     }
 
@@ -329,7 +339,6 @@ export class IncidentsService {
   // ---------- SUBSCRIPTIONS ----------
 
   async subscribe(id: string, userId: string) {
-    // versão simples sem null chato no upsert
     const existing = await this.prisma.notificationSubscription.findFirst({
       where: { userId, incidentId: id },
     });
@@ -357,7 +366,7 @@ export class IncidentsService {
     return { subscribed: false };
   }
 
-  // ---------- NOVO: DELETE INCIDENT ----------
+  // ---------- DELETE INCIDENT ----------
 
   async delete(id: string, userId: string) {
     const incident = await this.prisma.incident.findUnique({ where: { id } });

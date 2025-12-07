@@ -2,7 +2,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   IncidentStatus,
-  Priority,
+  Severity,            // 👈 antes importava Priority
   TimelineEventType,
 } from '@prisma/client';
 import { IncidentsService } from '../src/incidents/incidents.service';
@@ -65,11 +65,11 @@ describe('IncidentsService', () => {
 
   // ---------- CREATE ----------
 
-  it('deve criar incidente com prioridade default P3 e status NEW', async () => {
+  it('deve criar incidente com severidade default SEV3 e status NEW', async () => {
     const dto: CreateIncidentDto = {
       title: 'DB down',
       description: 'Database unreachable',
-      priority: undefined,
+      severity: undefined,     // 👈 antes priority
       assigneeId: 'user-2',
       teamId: 'team-1',
       categoryIds: ['cat-1'],
@@ -81,7 +81,7 @@ describe('IncidentsService', () => {
       title: dto.title,
       description: dto.description,
       status: IncidentStatus.NEW,
-      priority: Priority.P3,
+      severity: Severity.SEV3, // 👈 antes Priority.P3
     };
 
     prisma.incident.create.mockResolvedValue(createdIncident as any);
@@ -92,7 +92,7 @@ describe('IncidentsService', () => {
       data: expect.objectContaining({
         title: dto.title,
         description: dto.description,
-        priority: Priority.P3,
+        severity: Severity.SEV3,
         status: IncidentStatus.NEW,
         reporter: { connect: { id: 'user-1' } },
       }),
@@ -117,7 +117,7 @@ describe('IncidentsService', () => {
   it('deve listar incidentes com filtros (findAll)', async () => {
     const query: ListIncidentsDto = {
       status: IncidentStatus.NEW,
-      priority: Priority.P1,
+      severity: Severity.SEV1,          // 👈 antes priority: Priority.P1
       assigneeId: 'user-2',
       teamId: 'team-1',
       search: 'db',
@@ -132,7 +132,7 @@ describe('IncidentsService', () => {
     expect(prisma.incident.findMany).toHaveBeenCalledWith({
       where: {
         status: IncidentStatus.NEW,
-        priority: Priority.P1,
+        severity: Severity.SEV1,
         assigneeId: 'user-2',
         teamId: 'team-1',
         OR: [
@@ -179,7 +179,7 @@ describe('IncidentsService', () => {
     const dto: UpdateIncidentDto = {
       title: 'Novo título',
       description: 'Nova descrição',
-      priority: Priority.P2,
+      severity: Severity.SEV2,        // 👈 antes priority: Priority.P2
       assigneeId: 'user-2',
       teamId: 'team-1',
       categoryIds: ['cat-1', 'cat-2'],
@@ -206,7 +206,7 @@ describe('IncidentsService', () => {
       data: expect.objectContaining({
         title: 'Novo título',
         description: 'Nova descrição',
-        priority: Priority.P2,
+        severity: Severity.SEV2,
       }),
     });
 
