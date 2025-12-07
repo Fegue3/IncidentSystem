@@ -1,0 +1,143 @@
+.teams {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.teams__header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.teams__eyebrow {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: #6b7280;
+}
+
+.teams__title {
+  font-size: 26px;
+}
+
+.teams__subtitle {
+  font-size: 14px;
+  color: #4b5563;
+  max-width: 560px;
+}
+
+.teams__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1.5fr);
+  gap: 24px;
+}
+
+.teams-card {
+  background: #ffffff;
+  border-radius: var(--radius-md);
+  padding: 18px 20px 20px;
+  border: 1px solid rgba(27, 42, 65, 0.12);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.teams-card__title {
+  font-size: 18px;
+}
+
+.teams-card__text {
+  font-size: 14px;
+  color: #4b5563;
+}
+
+.teams-card__hint {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.teams__status {
+  font-size: 14px;
+  color: #4b5563;
+}
+
+.teams__status--error {
+  color: var(--color-red);
+}
+
+/* lista de equipas */
+
+.teams-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.teams-list__item {
+  display: flex;
+}
+
+.team-badge {
+  flex: 1;
+  background: var(--color-grey-light);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.team-badge__name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.team-badge__meta {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+/* formulário de criação */
+
+.teams-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.teams-btn {
+  align-self: flex-start;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  background: var(--color-copper);
+  color: #ffffff;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+  transition:
+    background 140ms ease-in-out,
+    transform 120ms ease-in-out,
+    box-shadow 140ms ease-in-out;
+}
+
+.teams-btn:hover:enabled {
+  background: #a84823;
+  transform: translateY(-1px);
+}
+
+.teams-btn:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+@media (max-width: 900px) {
+  .teams__grid {
+    grid-template-columns: 1fr;
+  }
+}
