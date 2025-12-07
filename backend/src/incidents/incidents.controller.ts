@@ -1,4 +1,3 @@
-// src/incidents/incidents.controller.ts
 import {
   Body,
   Controller,
@@ -90,5 +89,12 @@ export class IncidentsController {
   unsubscribe(@Param('id') id: string, @Req() req) {
     const userId = req.user.sub || req.user.id;
     return this.incidentsService.unsubscribe(id, userId);
+  }
+
+  // ---------- NOVO: apagar incidente ----------
+  @Delete(':id')
+  remove(@Param('id') id: string, @Req() req) {
+    const userId = req.user.sub || req.user.id;
+    return this.incidentsService.delete(id, userId);
   }
 }

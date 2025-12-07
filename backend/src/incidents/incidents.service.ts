@@ -1,8 +1,8 @@
-// src/incidents/incidents.service.ts
 import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import {
   IncidentStatus,
@@ -355,5 +355,32 @@ export class IncidentsService {
     });
 
     return { subscribed: false };
+  }
+
+  // ---------- NOVO: DELETE INCIDENT ----------
+
+  async delete(id: string, userId: string) {
+    const incident = await this.prisma.incident.findUnique({ where: { id } });
+    if (!incident) throw new NotFoundException('Incident not found');
+
+    if (incident.reporterId !== userId) {
+      throw new ForbiddenException(
+        'Only the reporter can delete this incident',
+      );
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.incidentComment.deleteMany({ where: { incidentId: id } }),
+      this.prisma.incidentTimelineEvent.deleteMany({
+        where: { incidentId: id },
+      }),
+      this.prisma.notificationSubscription.deleteMany({
+        where: { incidentId: id },
+      }),
+      this.prisma.categoryOnIncident.deleteMany({ where: { incidentId: id } }),
+      this.prisma.incident.delete({ where: { id } }),
+    ]);
+
+    return { deleted: true };
   }
 }

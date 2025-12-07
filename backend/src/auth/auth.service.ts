@@ -11,7 +11,7 @@ import * as crypto from 'crypto';
 import { Role, User } from '@prisma/client';
 
 type Tokens = { accessToken: string; refreshToken: string };
-type JwtPayload = { sub: string; email: string; role: Role };
+type JwtPayload = { sub: string; email: string; role: Role; teamId?: string | null };
 
 @Injectable()
 export class AuthService {
@@ -19,7 +19,7 @@ export class AuthService {
     private users: UsersService,
     private usersRepo: UsersRepository,
     private jwt: JwtService,
-  ) {}
+  ) { }
 
   private sign(payload: object, secret: string, expiresIn: string): string {
     return this.jwt.sign(payload as any, {
@@ -33,6 +33,7 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       role: user.role,
+      teamId: (user as any).teamId ?? null,
     };
 
     const accessToken = this.sign(
@@ -52,7 +53,7 @@ export class AuthService {
 
   async register(email: string, password: string, name?: string) {
     const u = await this.users.create(email, password, name);
-    // users.create deve devolver o User do prisma, incluindo role (default REPORTER / USER / o que tiveres)
+    // users.create deve devolver o User do prisma, incluindo role (default USER / REPORTER / etc.)
     const tokens = this.signTokens(u);
 
     await this.usersRepo.setRefreshToken(
@@ -61,7 +62,14 @@ export class AuthService {
     );
 
     return {
-      user: { id: u.id, email: u.email, name: u.name, role: u.role },
+      user: {
+        id: u.id,
+        email: u.email,
+        name: u.name,
+        role: u.role,
+        // 👇 assumimos que o modelo User tem este campo
+        teamId: (u as any).teamId ?? null,
+      },
       ...tokens,
     };
   }
@@ -80,7 +88,14 @@ export class AuthService {
     );
 
     return {
-      user: { id: u.id, email: u.email, name: u.name, role: u.role },
+      user: {
+        id: u.id,
+        email: u.email,
+        name: u.name,
+        role: u.role,
+        // 👇 idem aqui
+        teamId: (u as any).teamId ?? null,
+      },
       ...tokens,
     };
   }
@@ -149,5 +164,21 @@ export class AuthService {
     }
 
     throw new BadRequestException('Token inválido ou expirado');
+  }
+
+  // ---------- /auth/me ----------
+
+  async me(userId: string) {
+    const u = await this.users.findById(userId);
+    if (!u) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    return {
+      userId: u.id,
+      email: u.email,
+      role: u.role,
+      teamId: (u as any).teamId ?? null,
+    };
   }
 }
