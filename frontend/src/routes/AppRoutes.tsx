@@ -7,6 +7,9 @@ import { HomePage } from "../pages/HomePage/HomePage";
 import { AppLayout } from "../layouts/AppLayout/AppLayout";
 import { AboutPage } from "../pages/AboutPage/AboutPage";
 import { AccountPage } from "../pages/AccountPage/AccountPage";
+import { IncidentCreatePage } from "../pages/Incidents/IncidentCreatePage";
+import { IncidentDetailsPage } from "../pages/Incidents/IncidentDetailsPage";
+import { TeamsPage } from "../pages/Teams/TeamsPage";
 
 function PrivateRoute({ children }: { children: ReactNode }) {
   const { accessToken } = useAuth();
@@ -22,11 +25,11 @@ function PrivateRoute({ children }: { children: ReactNode }) {
 export default function AppRoutes() {
   return (
     <Routes>
-      {/* Rotas públicas */}
+      {/* públicas */}
       <Route path="/login" element={<LoginPage />} />
       <Route path="/signup" element={<SignUpPage />} />
 
-      {/* Rotas privadas com layout comum */}
+      {/* privadas */}
       <Route
         element={
           <PrivateRoute>
@@ -37,6 +40,9 @@ export default function AppRoutes() {
         <Route path="/" element={<HomePage />} />
         <Route path="/about" element={<AboutPage />} />
         <Route path="/account" element={<AccountPage />} />
+        <Route path="/teams" element={<TeamsPage />} />
+        <Route path="/incidents/new" element={<IncidentCreatePage />} />
+        <Route path="/incidents/:id" element={<IncidentDetailsPage />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />
