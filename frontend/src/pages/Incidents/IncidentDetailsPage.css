@@ -12,6 +12,15 @@
   gap: 8px;
 }
 
+/* nova barra com voltar à esquerda e apagar à direita */
+.incident-details__top-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+/* botão voltar com um bocadinho mais de padding */
 .incident-details__back-link {
   align-self: flex-start;
   font-size: 13px;
@@ -111,6 +120,33 @@
 
 .incident-btn--ghost:hover {
   background: rgba(27, 42, 65, 0.06);
+}
+
+/* botão de perigo (apagar incidente) */
+.incident-btn--danger {
+  background: var(--color-red);
+  color: #ffffff;
+  border-color: var(--color-red);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+}
+
+.incident-btn--danger:hover {
+  background: #b91c1c;
+  transform: translateY(-1px);
+}
+
+/* responsivo: em ecrãs pequenos, empilhar os botões */
+@media (max-width: 640px) {
+  .incident-details__top-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .incident-details__delete-btn {
+    align-self: stretch;
+    text-align: center;
+  }
 }
 
 /* chips reutilizados */
@@ -213,6 +249,58 @@
   justify-content: space-between; /* botões alinhados em baixo */
 }
 
+/* --- MENSAGEM (ESQUERDA) VISUALMENTE IGUAL AO BLOCO DE OWNER (DIREITA) --- */
+
+/* o segundo campo do formulário da esquerda (mensagem) */
+.incident-form--status .form-field:last-of-type {
+  margin-top: 22px; /* alinha verticalmente com “Selecionar responsável” */
+}
+
+/* o label da mensagem com o mesmo estilo do “Selecionar responsável” */
+.incident-form--status .form-field:last-of-type .form-field__label {
+  font-size: 11px;              /* igual ao label pequeno */
+  text-transform: none;         /* tira caps */
+  letter-spacing: 0;            /* sem espaçamento extra */
+  font-weight: 500;
+  color: #6b7280;
+}
+
+/* ------------------------------------------------------------------------ */
+
+.incident-owner {
+  margin-top: 22px;             /* casa com a margem da mensagem */
+  padding-top: 0;               /* sem traço a separar */
+  border-top: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.incident-owner__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.incident-owner__current {
+  font-size: 13px;
+  color: #111827;
+}
+
+.incident-owner__badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.24);
+  font-size: 11px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.incident-owner__btn {
+  align-self: flex-start;
+}
+
 .incident-form__submit {
   align-self: flex-start;
 }
@@ -229,6 +317,14 @@
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.12em;
+  color: #6b7280;
+}
+
+/* label “pequeno” usado à direita e agora também imitado à esquerda */
+.form-field__label-sm {
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
   color: #6b7280;
 }
 
@@ -287,28 +383,28 @@
   margin-top: 8px;
 }
 
-/* ⬇⬇⬇ ALTERAÇÃO AQUI: impede que descrições enormes rebentem o layout */
+/* descrição */
+
 .incident-panel__text {
   font-size: 14px;
   color: #4b5563;
-  overflow-wrap: break-word; /* quebra palavras muito longas dentro do painel */
-  word-break: break-word;    /* fallback para alguns browsers */
-  white-space: pre-wrap;     /* respeita quebras de linha do utilizador */
+  overflow-wrap: break-word;
+  word-break: break-word;
+  white-space: pre-wrap;
 }
-/* ⬆⬆⬆ */
 
- /* timeline */
+/* timeline */
 
 .timeline-wrapper {
   margin-top: 4px;
-  max-height: 360px; /* mais alto por defeito */
+  max-height: 360px;
   overflow-y: auto;
   padding-right: 8px;
-  flex: 1; /* enche bem a coluna até ao botão */
+  flex: 1;
 }
 
 .timeline-wrapper--expanded {
-  max-height: 720px; /* mais alto quando expandido */
+  max-height: 720px;
 }
 
 .timeline {
@@ -338,7 +434,7 @@
   position: absolute;
   left: 24px;
   top: 14px;
-  width: 18px;  /* círculos maiores */
+  width: 18px;
   height: 18px;
   border-radius: 999px;
   border: 3px solid #fff;
@@ -349,15 +445,15 @@
 }
 
 .timeline__dot--open {
-  background: #ef4444; /* vermelho */
+  background: #ef4444;
 }
 
 .timeline__dot--active {
-  background: #f59e0b; /* amarelo */
+  background: #f59e0b;
 }
 
 .timeline__dot--resolved {
-  background: #10b981; /* verde */
+  background: #10b981;
 }
 
 .timeline__dot--neutral {
@@ -467,51 +563,5 @@
 @media (max-width: 640px) {
   .incident-details__title {
     font-size: 24px;
-  }
-}
-/* topo */
-
-.incident-details__top {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-/* nova barra com voltar à esquerda e apagar à direita */
-.incident-details__top-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  width: 100%;
-}
-
-/* botão voltar com um bocadinho mais de padding */
-.incident-details__back-link {
-  padding-inline: 18px;
-}
-
-/* botão de perigo (apagar incidente) */
-.incident-btn--danger {
-  background: var(--color-red);
-  color: #ffffff;
-  border-color: var(--color-red);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
-}
-
-.incident-btn--danger:hover {
-  background: #b91c1c;
-  transform: translateY(-1px);
-}
-/* responsivo: em ecrãs pequenos, empilhar os botões */
-@media (max-width: 640px) {
-  .incident-details__top-bar {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-  }
-
-  .incident-details__delete-btn {
-    align-self: stretch;
-    text-align: center;
   }
 }

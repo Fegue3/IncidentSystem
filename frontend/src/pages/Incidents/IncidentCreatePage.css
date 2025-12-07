@@ -47,6 +47,57 @@
   gap: 14px;
 }
 
+.incident-create__owner {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.incident-create__owner-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* “pills” dos radios */
+.radio-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(27, 42, 65, 0.18);
+  font-size: 12px;
+  cursor: pointer;
+  background: #f9fafb;
+  transition:
+    background 120ms ease-in-out,
+    border-color 120ms ease-in-out;
+}
+
+.radio-pill input[type="radio"] {
+  width: 13px;
+  height: 13px;
+}
+
+.radio-pill span {
+  font-size: 12px;
+}
+
+/* estado checked: dá highlight */
+.radio-pill input[type="radio"]:checked + span,
+.radio-pill:hover span {
+  font-weight: 600;
+}
+
+
+.radio-pill:hover {
+  background: rgba(27, 42, 65, 0.04);
+  border-color: rgba(27, 42, 65, 0.35);
+}
+
+
 .incident-create__side {
   display: flex;
   flex-direction: column;

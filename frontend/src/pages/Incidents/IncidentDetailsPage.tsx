@@ -7,9 +7,13 @@ import {
   IncidentsAPI,
   type IncidentDetails,
   type IncidentStatus,
-  type Priority,
+  type SeverityCode,
+  getSeverityLabel,
+  getSeverityShortLabel,
 } from "../../services/incidents";
 import { useAuth } from "../../context/AuthContext";
+import { TeamsAPI } from "../../services/teams";
+import type { UserSummary } from "../../services/users";
 
 type Params = {
   id: string;
@@ -55,7 +59,8 @@ function getTimelineDotClass(ev: TimelineEvent): string {
 
 function formatTimelineType(ev: TimelineEvent): string {
   if (ev.type === "FIELD_UPDATE") {
-    return "PRIORITY_CHANGE";
+    // alteração genérica de campos – neste momento, severidade / owner
+    return "SEVERITY_UPDATE";
   }
   return ev.type;
 }
@@ -77,9 +82,10 @@ export function IncidentDetailsPage() {
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
 
-  const [selectedPriority, setSelectedPriority] = useState<Priority | "">("");
-  const [priorityUpdating, setPriorityUpdating] = useState(false);
-  const [priorityError, setPriorityError] = useState<string | null>(null);
+  const [selectedSeverity, setSelectedSeverity] =
+    useState<SeverityCode | "">("");
+  const [severityUpdating, setSeverityUpdating] = useState(false);
+  const [severityError, setSeverityError] = useState<string | null>(null);
 
   const [newComment, setNewComment] = useState("");
   const [commentSubmitting, setCommentSubmitting] = useState(false);
@@ -87,6 +93,14 @@ export function IncidentDetailsPage() {
 
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // owner/select de utilizadores
+  const [availableOwners, setAvailableOwners] = useState<UserSummary[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersError, setUsersError] = useState<string | null>(null);
+  const [ownerUpdating, setOwnerUpdating] = useState(false);
+  const [ownerError, setOwnerError] = useState<string | null>(null);
+  const [selectedOwnerId, setSelectedOwnerId] = useState<string>("");
 
   // ref para scroll automático da timeline para o fim
   const timelineRef = useRef<HTMLDivElement | null>(null);
@@ -96,9 +110,8 @@ export function IncidentDetailsPage() {
     try {
       const data = await IncidentsAPI.get(id);
       setIncident(data);
-
       setSelectedStatus("");
-      setSelectedPriority(data.priority);
+      setSelectedSeverity(data.severity);
     } catch (err) {
       console.error("Falha ao recarregar incidente", err);
     }
@@ -120,7 +133,7 @@ export function IncidentDetailsPage() {
 
         setIncident(data);
         setSelectedStatus("");
-        setSelectedPriority(data.priority);
+        setSelectedSeverity(data.severity);
       } catch (err: unknown) {
         const msg =
           err instanceof Error
@@ -145,6 +158,45 @@ export function IncidentDetailsPage() {
     timelineRef.current.scrollTop = timelineRef.current.scrollHeight;
   }, [incident?.timeline.length, timelineExpanded]);
 
+  // quando o incidente muda, sincronizar selectedOwnerId
+  useEffect(() => {
+    if (!incident || !incident.assignee) {
+      setSelectedOwnerId("");
+    } else {
+      setSelectedOwnerId(incident.assignee.id);
+    }
+  }, [incident?.assignee?.id]);
+
+  // carregar membros da equipa (para dropdown de owner)
+  useEffect(() => {
+    const teamId = incident?.team?.id;
+    if (!teamId) return;
+
+    let active = true;
+    setUsersLoading(true);
+    setUsersError(null);
+
+    TeamsAPI.listMembers(teamId)
+      .then((data) => {
+        if (!active) return;
+        setAvailableOwners(data);
+      })
+      .catch((err: unknown) => {
+        const msg =
+          err instanceof Error
+            ? err.message
+            : "Não foi possível carregar a lista de utilizadores para atribuir como owner.";
+        if (active) setUsersError(msg);
+      })
+      .finally(() => {
+        if (active) setUsersLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [incident?.team?.id]);
+
   const allowedNext = useMemo(
     () => (incident ? getAllowedNextStatuses(incident.status) : []),
     [incident]
@@ -153,12 +205,33 @@ export function IncidentDetailsPage() {
   const canDelete =
     !!incident && !!user && incident.reporter.id === user.id;
 
+  // regras de permissões (reporter vs owner)
+  const isReporter =
+    !!incident && !!user && incident.reporter.id === user.id;
+  const isOwner =
+    !!incident && !!user && incident.assignee?.id === user.id;
+  const hasOwner = !!incident?.assignee;
+
+  // enquanto não há owner: só o reporter tem "controlo total"
+  // depois de haver owner: só o owner atual tem controlo
+  const canEditIncident =
+    !!user && (!hasOwner ? isReporter : isOwner);
+
+  const canManageOwner = canEditIncident;
+
   if (!incidentId) {
     return (
       <section className="incident-details">
         <p className="incident-details__error">
           ID de incidente inválido na rota.
         </p>
+        <button
+          type="button"
+          className="incident-btn incident-btn--ghost incident-details__back-link"
+          onClick={() => navigate(-1)}
+        >
+          ← Voltar
+        </button>
       </section>
     );
   }
@@ -169,7 +242,7 @@ export function IncidentDetailsPage() {
 
   async function handleStatusSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!incident || !selectedStatus) return;
+    if (!incident || !selectedStatus || !canEditIncident) return;
 
     setStatusUpdating(true);
     setStatusError(null);
@@ -193,16 +266,16 @@ export function IncidentDetailsPage() {
     }
   }
 
-  async function handlePrioritySubmit(e: FormEvent) {
+  async function handleSeveritySubmit(e: FormEvent) {
     e.preventDefault();
-    if (!incident || !selectedPriority) return;
+    if (!incident || !selectedSeverity || !canEditIncident) return;
 
-    setPriorityUpdating(true);
-    setPriorityError(null);
+    setSeverityUpdating(true);
+    setSeverityError(null);
 
     try {
       await IncidentsAPI.updateFields(incident.id, {
-        priority: selectedPriority,
+        severity: selectedSeverity,
       });
 
       await refreshIncident(incident.id);
@@ -210,10 +283,10 @@ export function IncidentDetailsPage() {
       const msg =
         err instanceof Error
           ? err.message
-          : "Não foi possível atualizar a prioridade.";
-      setPriorityError(msg);
+          : "Não foi possível atualizar a severidade.";
+      setSeverityError(msg);
     } finally {
-      setPriorityUpdating(false);
+      setSeverityUpdating(false);
     }
   }
 
@@ -242,6 +315,30 @@ export function IncidentDetailsPage() {
     }
   }
 
+  // guardar responsável escolhido no dropdown
+  async function handleSaveOwner() {
+    if (!incident || !canManageOwner) return;
+
+    setOwnerUpdating(true);
+    setOwnerError(null);
+
+    try {
+      await IncidentsAPI.updateFields(incident.id, {
+        assigneeId: selectedOwnerId || undefined,
+      });
+
+      await refreshIncident(incident.id);
+    } catch (err: unknown) {
+      const msg =
+        err instanceof Error
+          ? err.message
+          : "Não foi possível atualizar o responsável.";
+      setOwnerError(msg);
+    } finally {
+      setOwnerUpdating(false);
+    }
+  }
+
   async function handleDeleteIncident() {
     if (!incident) return;
     const confirmed = window.confirm(
@@ -254,7 +351,7 @@ export function IncidentDetailsPage() {
 
     try {
       await IncidentsAPI.delete(incident.id);
-      navigate("/"); // ou "/incidents", se preferires
+      navigate("/");
     } catch (err: unknown) {
       const msg =
         err instanceof Error
@@ -332,9 +429,9 @@ export function IncidentDetailsPage() {
           </span>
 
           <span
-            className={`chip chip--priority chip--priority-${incident.priority.toLowerCase()}`}
+            className={`chip chip--priority chip--priority-${incident.severity.toLowerCase()}`}
           >
-            {incident.priority}
+            {getSeverityShortLabel(incident.severity)}
           </span>
 
           {incident.team && (
@@ -349,7 +446,7 @@ export function IncidentDetailsPage() {
           <strong>{incident.reporter.name ?? incident.reporter.email}</strong>
           {incident.assignee && (
             <>
-              {" · Atribuído a "}
+              {" · Responsável: "}
               <strong>
                 {incident.assignee.name ?? incident.assignee.email}
               </strong>
@@ -368,8 +465,9 @@ export function IncidentDetailsPage() {
       <section className="incident-manage">
         <h2 className="incident-manage__title">Gestão do incidente</h2>
         <p className="incident-manage__info">
-          Qualquer utilizador autenticado pode atualizar o estado, a prioridade
-          e adicionar comentários.
+          {hasOwner
+            ? "Após ter responsável atribuído, apenas o owner pode alterar o estado, severidade e responsável."
+            : "Enquanto não houver responsável, o reporter pode escolher o owner inicial e atualizar o incidente."}
         </p>
 
         <div className="incident-manage__grid">
@@ -385,7 +483,11 @@ export function IncidentDetailsPage() {
                 onChange={(e) =>
                   setSelectedStatus(e.target.value as IncidentStatus | "")
                 }
-                disabled={allowedNext.length === 0 || statusUpdating}
+                disabled={
+                  allowedNext.length === 0 ||
+                  statusUpdating ||
+                  !canEditIncident
+                }
               >
                 {allowedNext.length === 0 && (
                   <option value="">
@@ -405,7 +507,7 @@ export function IncidentDetailsPage() {
               </select>
             </label>
 
-            <label className="form-field">
+            <label className="form-field incident-form__message-field">
               <span className="form-field__label">Mensagem (opcional)</span>
               <input
                 type="text"
@@ -413,6 +515,7 @@ export function IncidentDetailsPage() {
                 placeholder="Ex.: Escalado para a equipa de base de dados"
                 value={statusMessage}
                 onChange={(e) => setStatusMessage(e.target.value)}
+                disabled={!canEditIncident}
               />
             </label>
 
@@ -426,7 +529,10 @@ export function IncidentDetailsPage() {
               type="submit"
               className="incident-btn incident-btn--primary incident-form__submit"
               disabled={
-                statusUpdating || !selectedStatus || allowedNext.length === 0
+                statusUpdating ||
+                !selectedStatus ||
+                allowedNext.length === 0 ||
+                !canEditIncident
               }
             >
               {statusUpdating ? "A atualizar estado…" : "Atualizar estado"}
@@ -435,40 +541,106 @@ export function IncidentDetailsPage() {
 
           <form
             className="incident-form incident-form--priority"
-            onSubmit={handlePrioritySubmit}
+            onSubmit={handleSeveritySubmit}
           >
             <label className="form-field">
-              <span className="form-field__label">Prioridade</span>
+              <span className="form-field__label">Severidade (SEV)</span>
               <select
                 className="form-field__select"
-                value={selectedPriority}
+                value={selectedSeverity}
                 onChange={(e) =>
-                  setSelectedPriority(e.target.value as Priority | "")
+                  setSelectedSeverity(e.target.value as SeverityCode | "")
                 }
-                disabled={priorityUpdating}
+                disabled={severityUpdating || !canEditIncident}
               >
-                <option value="P1">P1 — Crítico</option>
-                <option value="P2">P2 — Alto</option>
-                <option value="P3">P3 — Moderado</option>
-                <option value="P4">P4 — Baixo</option>
+                <option value="SEV1">{getSeverityLabel("SEV1")}</option>
+                <option value="SEV2">{getSeverityLabel("SEV2")}</option>
+                <option value="SEV3">{getSeverityLabel("SEV3")}</option>
+                <option value="SEV4">{getSeverityLabel("SEV4")}</option>
               </select>
             </label>
 
-            {priorityError && (
+            {severityError && (
               <p className="incident-details__error" role="alert">
-                {priorityError}
+                {severityError}
               </p>
             )}
 
             <button
               type="submit"
               className="incident-btn incident-btn--ghost incident-form__submit"
-              disabled={priorityUpdating || !selectedPriority}
+              disabled={
+                severityUpdating || !selectedSeverity || !canEditIncident
+              }
             >
-              {priorityUpdating
-                ? "A guardar prioridade…"
-                : "Guardar prioridade"}
+              {severityUpdating
+                ? "A guardar severidade…"
+                : "Guardar severidade"}
             </button>
+
+            {/* bloco de responsável */}
+            <div className="incident-owner">
+              {incident.team && canManageOwner && (
+                <>
+                  <label className="form-field incident-owner__select-field">
+                    <span className="form-field__label-sm">
+                      Selecionar responsável
+                    </span>
+                    <select
+                      className="form-field__select"
+                      value={selectedOwnerId}
+                      onChange={(e) => setSelectedOwnerId(e.target.value)}
+                      disabled={usersLoading || ownerUpdating}
+                    >
+                      <option value="">
+                        Sem owner (incidente por atribuir)
+                      </option>
+                      {availableOwners.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.name ?? u.email}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  {usersError && (
+                    <p className="incident-details__error" role="alert">
+                      {usersError}
+                    </p>
+                  )}
+
+                  {ownerError && (
+                    <p className="incident-details__error" role="alert">
+                      {ownerError}
+                    </p>
+                  )}
+
+                  <button
+                    type="button"
+                    className="incident-btn incident-btn--ghost incident-owner__btn"
+                    onClick={handleSaveOwner}
+                    disabled={ownerUpdating || usersLoading}
+                  >
+                    {ownerUpdating
+                      ? "A guardar responsável…"
+                      : "Guardar responsável"}
+                  </button>
+                </>
+              )}
+
+              {incident.team && !canManageOwner && (
+                <p className="incident-owner__hint">
+                  Apenas o responsável atual pode alterar o owner.
+                </p>
+              )}
+
+              {!incident.team && (
+                <p className="incident-owner__hint">
+                  Este incidente não está associado a nenhuma equipa, por isso
+                  não é possível atribuir um responsável.
+                </p>
+              )}
+            </div>
           </form>
         </div>
       </section>
@@ -492,10 +664,7 @@ export function IncidentDetailsPage() {
           >
             <ol className="timeline">
               {incident.timeline.map((event) => {
-                const renderedMessage =
-                  event.type === "FIELD_UPDATE"
-                    ? "Priority changed"
-                    : event.message;
+                const renderedMessage = event.message ?? null;
 
                 return (
                   <li key={event.id} className="timeline__item">
