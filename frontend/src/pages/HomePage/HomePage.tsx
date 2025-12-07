@@ -6,16 +6,11 @@ import {
   IncidentsAPI,
   type IncidentSummary,
   type IncidentStatus,
+  getSeverityShortLabel,
+  getSeverityOrder,
 } from "../../services/incidents";
 
 const TEAM_STORAGE_KEY = "selectedTeamId";
-
-const PRIORITY_ORDER: Record<string, number> = {
-  P1: 1,
-  P2: 2,
-  P3: 3,
-  P4: 4,
-};
 
 export function HomePage() {
   const [me, setMe] = useState<Me | null>(null);
@@ -104,11 +99,11 @@ export function HomePage() {
 
   function sortIncidents(list: IncidentSummary[]): IncidentSummary[] {
     return [...list].sort((a, b) => {
-      const pa = PRIORITY_ORDER[a.priority] ?? 999;
-      const pb = PRIORITY_ORDER[b.priority] ?? 999;
+      const sa = getSeverityOrder(a.severity);
+      const sb = getSeverityOrder(b.severity);
 
-      if (pa !== pb) {
-        return pa - pb; // P1 antes de P2, etc.
+      if (sa !== sb) {
+        return sa - sb; // SEV1 antes de SEV2, etc.
       }
 
       const da = new Date(a.createdAt).getTime();
@@ -139,11 +134,10 @@ export function HomePage() {
     navigate(`/incidents/${id}`);
   }
 
-  // agora usamos o reporter em vez do assignee
-  function renderReporter(incident: IncidentSummary): string {
-    if (!incident.reporter) return "—";
-    const label = incident.reporter.name ?? incident.reporter.email;
-    // limite de 10 caracteres com "..."
+  // label do responsável (owner)
+  function renderOwner(incident: IncidentSummary): string {
+    if (!incident.assignee) return "Sem owner";
+    const label = incident.assignee.name ?? incident.assignee.email;
     return truncate(label, 10);
   }
 
@@ -189,7 +183,7 @@ export function HomePage() {
             <option>Serviço (brevemente)</option>
           </select>
           <select className="dashboard__filter-input" disabled>
-            <option>Prioridade (brevemente)</option>
+            <option>Severidade (brevemente)</option>
           </select>
         </div>
         <button
@@ -270,7 +264,7 @@ export function HomePage() {
                         </p>
                       </div>
 
-                      {/* meio: descrição à esquerda, status+prioridade à direita */}
+                      {/* meio: descrição à esquerda, estado+severidade à direita */}
                       <div className="incident-card__middle">
                         <div className="incident-card__description-block">
                           <span className="incident-card__label">
@@ -288,27 +282,29 @@ export function HomePage() {
                             {incident.status}
                           </span>
                           <span
-                            className={`chip chip--priority chip--priority-${incident.priority.toLowerCase()} incident-card__priority-chip`}
+                            className={`chip chip--severity chip--severity-${incident.severity.toLowerCase()} incident-card__priority-chip`}
                           >
-                            {incident.priority}
+                            {getSeverityShortLabel(incident.severity)}
                           </span>
                         </div>
                       </div>
 
-                      {/* fundo: Reporter + Criado */}
+                      {/* fundo: Owner + Criado */}
                       <div className="incident-card__footer">
                         <span className="incident-card__meta-item">
-                          <span className="incident-card__label">
-                            Reporter:
-                          </span>
-                          <span className="incident-card__value">
-                            {renderReporter(incident)}
-                          </span>
+                          <span className="incident-card__label">Owner:</span>
+                          {incident.assignee ? (
+                            <span className="incident-card__value">
+                              {renderOwner(incident)}
+                            </span>
+                          ) : (
+                            <span className="incident-card__owner-badge">
+                              Sem owner
+                            </span>
+                          )}
                         </span>
                         <span className="incident-card__meta-item">
-                          <span className="incident-card__label">
-                            Criado:
-                          </span>
+                          <span className="incident-card__label">Criado:</span>
                           <span className="incident-card__value">
                             {new Date(incident.createdAt).toLocaleString()}
                           </span>
@@ -380,26 +376,28 @@ export function HomePage() {
                             {incident.status}
                           </span>
                           <span
-                            className={`chip chip--priority chip--priority-${incident.priority.toLowerCase()} incident-card__priority-chip`}
+                            className={`chip chip--severity chip--severity-${incident.severity.toLowerCase()} incident-card__priority-chip`}
                           >
-                            {incident.priority}
+                            {getSeverityShortLabel(incident.severity)}
                           </span>
                         </div>
                       </div>
 
                       <div className="incident-card__footer">
                         <span className="incident-card__meta-item">
-                          <span className="incident-card__label">
-                            Reporter:
-                          </span>
-                          <span className="incident-card__value">
-                            {renderReporter(incident)}
-                          </span>
+                          <span className="incident-card__label">Owner:</span>
+                          {incident.assignee ? (
+                            <span className="incident-card__value">
+                              {renderOwner(incident)}
+                            </span>
+                          ) : (
+                            <span className="incident-card__owner-badge">
+                              Sem owner
+                            </span>
+                          )}
                         </span>
                         <span className="incident-card__meta-item">
-                          <span className="incident-card__label">
-                            Criado:
-                          </span>
+                          <span className="incident-card__label">Criado:</span>
                           <span className="incident-card__value">
                             {new Date(incident.createdAt).toLocaleString()}
                           </span>
@@ -471,26 +469,28 @@ export function HomePage() {
                             {incident.status}
                           </span>
                           <span
-                            className={`chip chip--priority chip--priority-${incident.priority.toLowerCase()} incident-card__priority-chip`}
+                            className={`chip chip--severity chip--severity-${incident.severity.toLowerCase()} incident-card__priority-chip`}
                           >
-                            {incident.priority}
+                            {getSeverityShortLabel(incident.severity)}
                           </span>
                         </div>
                       </div>
 
                       <div className="incident-card__footer">
                         <span className="incident-card__meta-item">
-                          <span className="incident-card__label">
-                            Reporter:
-                          </span>
-                          <span className="incident-card__value">
-                            {renderReporter(incident)}
-                          </span>
+                          <span className="incident-card__label">Owner:</span>
+                          {incident.assignee ? (
+                            <span className="incident-card__value">
+                              {renderOwner(incident)}
+                            </span>
+                          ) : (
+                            <span className="incident-card__owner-badge">
+                              Sem owner
+                            </span>
+                          )}
                         </span>
                         <span className="incident-card__meta-item">
-                          <span className="incident-card__label">
-                            Criado:
-                          </span>
+                          <span className="incident-card__label">Criado:</span>
                           <span className="incident-card__value">
                             {new Date(incident.createdAt).toLocaleString()}
                           </span>
