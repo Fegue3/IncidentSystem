@@ -1,5 +1,5 @@
 // ---------------------------
-// Prisma schema (SEVERITY)
+// Prisma schema (IMS)
 // ---------------------------
 
 generator client {
@@ -51,6 +51,13 @@ enum TimelineEventType {
   FIELD_UPDATE
 }
 
+enum CAPAStatus {
+  OPEN
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
 // ---------------------------
 // Core models
 // ---------------------------
@@ -73,8 +80,12 @@ model User {
   comments    IncidentComment[]
   subscriptions NotificationSubscription[]
   teams       Team[]     @relation("TeamMembers")
+
   // lado oposto do author nos eventos de timeline
   timelineAuthored IncidentTimelineEvent[] @relation("TimelineAuthor")
+
+  // CAPA ownership (opcional)
+  capaOwned CAPA[] @relation("CAPAOwner")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -89,8 +100,35 @@ model Team {
   members   User[]   @relation("TeamMembers")
   incidents Incident[]
 
+  // Serviços “owned” pela equipa (opcional mas útil)
+  services  Service[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ---------------------------
+// Service
+// ---------------------------
+
+model Service {
+  id          String  @id @default(cuid())
+  key         String  @unique  // ex: "public-api", "auth-gateway"
+  name        String  @unique  // ex: "Public API"
+  description String?
+  isActive    Boolean @default(true)
+
+  ownerTeam   Team?   @relation(fields: [ownerTeamId], references: [id])
+  ownerTeamId String?
+
+  // Incidentes cujo serviço principal é este
+  incidents   Incident[] @relation("PrimaryService")
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([ownerTeamId])
+  @@index([isActive])
 }
 
 model Incident {
@@ -110,9 +148,12 @@ model Incident {
   team        Team?          @relation(fields: [teamId], references: [id])
   teamId      String?
 
+  // Serviço principal
+  primaryService   Service? @relation("PrimaryService", fields: [primaryServiceId], references: [id])
+  primaryServiceId String?
+
   // Categorization
   categories  CategoryOnIncident[]
-  // M-N implícito: sem fields/references; só o nome da relação dos dois lados
   tags        Tag[]          @relation("IncidentTags")
 
   // Timeline & comments
@@ -121,6 +162,9 @@ model Incident {
 
   // Integrations / external sources
   sources     IncidentSource[]
+
+  // CAPAs (novo)
+  capas       CAPA[]
 
   // Subscriptions (lado oposto)
   subscriptions NotificationSubscription[]
@@ -135,6 +179,7 @@ model Incident {
   updatedAt   DateTime       @updatedAt
 
   @@index([status, severity])
+  @@index([primaryServiceId])
   @@index([assigneeId])
   @@index([reporterId])
   @@index([teamId])
@@ -180,7 +225,6 @@ model Category {
   description String?
 
   incidents   CategoryOnIncident[]
-  // lado oposto de subscriptions por categoria
   subscriptions NotificationSubscription[]
 
   createdAt   DateTime              @default(now())
@@ -202,10 +246,34 @@ model CategoryOnIncident {
 model Tag {
   id        String     @id @default(cuid())
   label     String     @unique
-  // M-N implícito: lado oposto com o mesmo nome da relação
   incidents Incident[] @relation("IncidentTags")
 
   createdAt DateTime   @default(now())
+}
+
+// ---------------------------
+// CAPA 
+// ---------------------------
+
+model CAPA {
+  id         String    @id @default(cuid())
+  incident   Incident  @relation(fields: [incidentId], references: [id])
+  incidentId String
+
+  action     String
+  status     CAPAStatus @default(OPEN)
+
+  owner      User?     @relation("CAPAOwner", fields: [ownerId], references: [id])
+  ownerId    String?
+
+  dueAt      DateTime?
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([incidentId])
+  @@index([status])
+  @@index([ownerId])
 }
 
 // ---------------------------
@@ -253,11 +321,9 @@ model NotificationSubscription {
   user       User      @relation(fields: [userId], references: [id])
   userId     String
 
-  // subs a um incidente específico (opcional)
   incident   Incident? @relation(fields: [incidentId], references: [id])
   incidentId String?
 
-  // subs por categoria (opcional)
   category   Category? @relation(fields: [categoryId], references: [id])
   categoryId String?
 
