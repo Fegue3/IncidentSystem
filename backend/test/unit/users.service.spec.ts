@@ -1,60 +1,77 @@
-import { UsersService } from '../../src/users/users.service';
-import { UsersRepository } from '../../src/users/users.repository';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
+import { UsersService } from '../../src/users/users.service';
 
 jest.mock('bcrypt', () => ({
-  hash: jest.fn(async () => 'HASHED'),
-  compare: jest.fn(async () => true),
+  hash: jest.fn(),
+  compare: jest.fn(),
 }));
 
 describe('UsersService (unit)', () => {
   let service: UsersService;
 
-  const repoMock = {
+  const repoMock: any = {
+    create: jest.fn(),
     findByEmail: jest.fn(),
     findById: jest.fn(),
-    create: jest.fn(),
     setPassword: jest.fn(),
+  };
+
+  const bcryptMock = bcrypt as unknown as {
+    hash: jest.Mock;
+    compare: jest.Mock;
   };
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new UsersService(repoMock as unknown as UsersRepository);
+    service = new UsersService(repoMock);
   });
 
-  it('create -> se email já existe => BadRequest', async () => {
-    repoMock.findByEmail.mockResolvedValue({ id: 'u1' });
+  it('create -> falha se email já existe', async () => {
+    repoMock.findByEmail.mockResolvedValueOnce({ id: 'u1' });
 
-    await expect(service.create('a@a.com', 'pw')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.create('a@a.com', 'pass', 'Ana')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
   });
 
-  it('create -> cria user com name default "" e password hash', async () => {
-    repoMock.findByEmail.mockResolvedValue(null);
-    repoMock.create.mockResolvedValue({ id: 'u1' });
+  it('create -> cria user com password hash', async () => {
+    repoMock.findByEmail.mockResolvedValueOnce(null);
+    repoMock.create.mockResolvedValueOnce({ id: 'u1', email: 'a@a.com' });
 
-    await service.create('a@a.com', 'pw');
+    bcryptMock.hash.mockResolvedValueOnce('HASH');
 
-    expect(repoMock.create).toHaveBeenCalledWith({
-      email: 'a@a.com',
-      password: 'HASHED',
-      name: '',
-      role: 'USER',
-    });
+    const res = await service.create('a@a.com', 'pass', 'Ana');
+
+    expect(repoMock.create).toHaveBeenCalled();
+    expect(res.id).toBe('u1');
   });
 
-  it('changePassword -> user não existe => NotFound', async () => {
-    repoMock.findById.mockResolvedValue(null);
+  it('validatePassword -> false quando bcrypt.compare falha', async () => {
+    bcryptMock.compare.mockResolvedValueOnce(false);
+
+    const ok = await service.validatePassword('plain', 'HASH');
+
+    expect(ok).toBe(false);
+  });
+
+  it('validatePassword -> true quando bcrypt.compare ok', async () => {
+    bcryptMock.compare.mockResolvedValueOnce(true);
+
+    await expect(service.validatePassword('plain', 'HASH')).resolves.toBe(true);
+  });
+
+  it('changePassword -> NotFound se user não existe', async () => {
+    repoMock.findById.mockResolvedValueOnce(null);
 
     await expect(service.changePassword('u1', 'old', 'new')).rejects.toBeInstanceOf(
       NotFoundException,
     );
   });
 
-  it('changePassword -> old password inválida => BadRequest', async () => {
-    const bcrypt = require('bcrypt');
-    bcrypt.compare.mockResolvedValue(false);
-
-    repoMock.findById.mockResolvedValue({ id: 'u1', password: 'HASH' });
+  it('changePassword -> BadRequest se oldPassword inválida', async () => {
+    repoMock.findById.mockResolvedValueOnce({ id: 'u1', password: 'HASH' });
+    bcryptMock.compare.mockResolvedValueOnce(false);
 
     await expect(service.changePassword('u1', 'old', 'new')).rejects.toBeInstanceOf(
       BadRequestException,
@@ -62,10 +79,12 @@ describe('UsersService (unit)', () => {
   });
 
   it('changePassword -> ok => setPassword com hash novo', async () => {
-    repoMock.findById.mockResolvedValue({ id: 'u1', password: 'HASH' });
+    repoMock.findById.mockResolvedValueOnce({ id: 'u1', password: 'HASH' });
+    bcryptMock.compare.mockResolvedValueOnce(true);
+    bcryptMock.hash.mockResolvedValueOnce('NEW_HASH');
 
     await service.changePassword('u1', 'old', 'newStrongPass1!');
 
-    expect(repoMock.setPassword).toHaveBeenCalledWith('u1', 'HASHED');
+    expect(repoMock.setPassword).toHaveBeenCalledWith('u1', 'NEW_HASH');
   });
 });

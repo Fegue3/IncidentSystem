@@ -8,17 +8,20 @@ describe('JWT Strategies (unit)', () => {
     process.env.JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET ?? 'test-refresh';
   });
 
-  it('AccessJwtStrategy.validate devolve payload', async () => {
+  it('AccessJwtStrategy.validate devolve payload (sync)', () => {
     const s = new AccessJwtStrategy();
     const payload = { sub: 'u1', email: 'u@u.com', role: 'USER', teamId: null };
-    await expect(s.validate(payload as any)).resolves.toEqual(payload);
+
+    const out = s.validate(payload as any);
+
+    expect(out).toEqual(payload);
   });
 
-  it('RefreshJwtStrategy.validate inclui refreshToken do body', async () => {
+  it('RefreshJwtStrategy.validate inclui refreshToken do body', () => {
     const s = new RefreshJwtStrategy();
     const payload = { sub: 'u1', email: 'u@u.com' };
 
-    const out = await s.validate(
+    const out = s.validate(
       { body: { refreshToken: 'rt' }, headers: {} } as any,
       payload as any,
     );
@@ -27,12 +30,12 @@ describe('JWT Strategies (unit)', () => {
     expect(out.refreshToken).toBe('rt');
   });
 
-  it('RefreshJwtStrategy.validate falha sem refresh token', async () => {
+  it('RefreshJwtStrategy.validate falha sem refresh token (sync throw)', () => {
     const s = new RefreshJwtStrategy();
     const payload = { sub: 'u1' };
 
-    await expect(
-      s.validate({ body: {}, headers: {} } as any, payload as any),
-    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(() => s.validate({ body: {}, headers: {} } as any, payload as any)).toThrow(
+      UnauthorizedException,
+    );
   });
 });
