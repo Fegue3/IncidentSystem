@@ -1,71 +1,34 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { AppModule } from '../../src/app.module';
+import { INestApplication } from '@nestjs/common';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { resetDb } from './_helpers/prisma-reset';
+import { createIntegrationApp } from './_helpers/create-integration-app';
 
 describe('Incidents primaryService (integration)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
 
   let reporterId: string;
-  let accessToken: string;
 
   beforeAll(async () => {
-    const mod = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-
-    app = mod.createNestApplication();
-    app.setGlobalPrefix('api');
-    app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
-    await app.init();
-
-    prisma = app.get(PrismaService);
+    const setup = await createIntegrationApp();
+    app = setup.app;
+    prisma = setup.prisma;
   });
 
   afterAll(async () => {
     await app.close();
   });
 
-  const authHeader = () => ({ Authorization: `Bearer ${accessToken}` });
-
-  async function login(email: string, password: string) {
-    // tenta 200/201 e diferentes nomes de campo (access_token / accessToken / token)
-    const res = await request(app.getHttpServer())
-      .post('/api/auth/login')
-      .send({ email, password })
-      .expect((r) => {
-        if (r.status !== 200 && r.status !== 201) {
-          throw new Error(`Expected 200/201 from /api/auth/login, got ${r.status}`);
-        }
-      });
-
-    const token =
-      res.body?.access_token ?? res.body?.accessToken ?? res.body?.token;
-
-    if (!token) {
-      throw new Error(
-        `Login response did not include a token. Body: ${JSON.stringify(res.body)}`,
-      );
-    }
-    return token as string;
-  }
-
   beforeEach(async () => {
     await resetDb(prisma);
 
     const team = await prisma.team.create({ data: { name: 'IT Ops' } });
-
-    const email = 'rep@test.local';
-    const password = '123456';
-
     const user = await prisma.user.create({
       data: {
-        email,
+        email: 'rep@test.local',
         name: 'Reporter',
-        password, // assume auth module valida isto como plain (como nos teus testes)
+        password: '123456',
         role: 'USER' as any,
         teams: { connect: [{ id: team.id }] },
       },
@@ -79,14 +42,11 @@ describe('Incidents primaryService (integration)', () => {
     await prisma.service.create({
       data: { key: 'public-api', name: 'Public API', isActive: true },
     });
-
-    accessToken = await login(email, password);
   });
 
   it('POST /api/incidents accepts primaryServiceKey', async () => {
     const res = await request(app.getHttpServer())
       .post('/api/incidents')
-      .set(authHeader())
       .send({
         title: 't',
         description: 'd',
@@ -108,13 +68,10 @@ describe('Incidents primaryService (integration)', () => {
       },
     });
 
-    const svc = await prisma.service.findUnique({
-      where: { key: 'public-api' },
-    });
+    const svc = await prisma.service.findUnique({ where: { key: 'public-api' } });
 
     const res = await request(app.getHttpServer())
       .patch(`/api/incidents/${created.id}`)
-      .set(authHeader())
       .send({ primaryServiceKey: 'public-api' })
       .expect(200);
 
@@ -122,9 +79,7 @@ describe('Incidents primaryService (integration)', () => {
   });
 
   it('PATCH /api/incidents/:id removes service with empty string', async () => {
-    const svc = await prisma.service.findUnique({
-      where: { key: 'auth-gateway' },
-    });
+    const svc = await prisma.service.findUnique({ where: { key: 'auth-gateway' } });
 
     const created = await prisma.incident.create({
       data: {
@@ -139,7 +94,6 @@ describe('Incidents primaryService (integration)', () => {
 
     const res = await request(app.getHttpServer())
       .patch(`/api/incidents/${created.id}`)
-      .set(authHeader())
       .send({ primaryServiceId: '' })
       .expect(200);
 
@@ -147,9 +101,7 @@ describe('Incidents primaryService (integration)', () => {
   });
 
   it('GET /api/incidents?primaryServiceKey=... filters list', async () => {
-    const svc = await prisma.service.findUnique({
-      where: { key: 'auth-gateway' },
-    });
+    const svc = await prisma.service.findUnique({ where: { key: 'auth-gateway' } });
 
     await prisma.incident.create({
       data: {
@@ -174,7 +126,6 @@ describe('Incidents primaryService (integration)', () => {
 
     const res = await request(app.getHttpServer())
       .get('/api/incidents?primaryServiceKey=auth-gateway')
-      .set(authHeader())
       .expect(200);
 
     expect(Array.isArray(res.body)).toBe(true);
