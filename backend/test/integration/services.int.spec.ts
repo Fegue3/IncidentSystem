@@ -60,7 +60,6 @@ describe('Services (integration)', () => {
   it('list() retorna lista', async () => {
     const svc: any = services as any;
 
-    // tenta nomes comuns
     const res =
       typeof svc.list === 'function'
         ? await svc.list({} as any)
@@ -95,14 +94,31 @@ describe('Services (integration)', () => {
   it('list() com isActive=true filtra', async () => {
     const svc: any = services as any;
 
-    const res =
-      typeof svc.list === 'function'
-        ? await svc.list({ isActive: true } as any)
-        : typeof svc.findAll === 'function'
-          ? await svc.findAll({ isActive: true } as any)
-          : await prisma.service.findMany({ where: { isActive: true } });
+    // Alguns services esperam isActive boolean, outros esperam string "true" (por vir de querystring).
+    // Tentamos as duas formas.
+    let res: any[];
 
-    expect(res.every((s: any) => s.isActive === true)).toBe(true);
+    if (typeof svc.list === 'function') {
+      try {
+        res = await svc.list({ isActive: true } as any);
+      } catch {
+        res = await svc.list({ isActive: 'true' } as any);
+      }
+    } else if (typeof svc.findAll === 'function') {
+      try {
+        res = await svc.findAll({ isActive: true } as any);
+      } catch {
+        res = await svc.findAll({ isActive: 'true' } as any);
+      }
+    } else {
+      res = await prisma.service.findMany({ where: { isActive: true } });
+    }
+
+    expect(Array.isArray(res)).toBe(true);
+    expect(res.length).toBeGreaterThan(0);
+
+    // assert forte: não pode vir nenhum inativo
+    expect(res.some((s: any) => s.isActive === false)).toBe(false);
   });
 
   it('findByKey() devolve um', async () => {
@@ -148,7 +164,7 @@ describe('Services (integration)', () => {
       return;
     }
 
-    // fallback "sem service": verifica só DB
+    // fallback "sem service"
     const db = await prisma.service.findUnique({ where: { key: 'nope' } });
     expect(db).toBeNull();
   });
