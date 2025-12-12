@@ -22,10 +22,24 @@ jobs:
       - name: Start dependencies (Postgres + Redis) for CI
         run: docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d postgres redis
 
+      # wait pelo healthcheck do postgres (no host), não dentro do backend
+      - name: Wait for Postgres to be healthy
+        run: |
+          for i in {1..60}; do
+            status=$(docker inspect -f '{{.State.Health.Status}}' incidents_db 2>/dev/null || echo "starting")
+            echo "postgres health: $status"
+            if [ "$status" = "healthy" ]; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Postgres not healthy in time"
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml logs postgres
+          exit 1
+
       - name: Run backend tests inside Docker (unit + integration + e2e + coverage)
         run: |
           docker compose -f docker-compose.yml -f docker-compose.ci.yml run --rm backend sh -lc "
-            until pg_isready -h postgres -U postgres -d incidentsdb_test; do echo 'waiting postgres...'; sleep 1; done &&
             npm ci &&
             npx prisma migrate deploy &&
             npm run test:unit &&
