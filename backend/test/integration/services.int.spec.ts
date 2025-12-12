@@ -1,30 +1,25 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+// test/integration/services.int.spec.ts
 import request from 'supertest';
-import { AppModule } from '../../src/app.module';
+import { INestApplication } from '@nestjs/common';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { resetDb } from './_helpers/prisma-reset';
+import { createIntegrationApp } from './_helpers/create-integration-app';
 
 describe('Services (integration)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
 
   beforeAll(async () => {
-    const mod = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-
-    app = mod.createNestApplication();
-    app.setGlobalPrefix('api');
-    app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
-    await app.init();
-
-    prisma = app.get(PrismaService);
+    const setup = await createIntegrationApp();
+    app = setup.app;
+    prisma = setup.prisma;
   });
 
   beforeEach(async () => {
     await resetDb(prisma);
+
     await prisma.team.create({ data: { name: 'SRE' } });
+
     await prisma.service.create({
       data: {
         key: 'auth-gateway',
@@ -33,6 +28,7 @@ describe('Services (integration)', () => {
         isActive: true,
       },
     });
+
     await prisma.service.create({
       data: {
         key: 'old-service',
@@ -47,19 +43,13 @@ describe('Services (integration)', () => {
   });
 
   it('GET /api/services returns list', async () => {
-    const res = await request(app.getHttpServer())
-      .get('/api/services')
-      .expect(200);
-
+    const res = await request(app.getHttpServer()).get('/api/services').expect(200);
     expect(Array.isArray(res.body)).toBe(true);
     expect(res.body.length).toBeGreaterThan(0);
   });
 
   it('GET /api/services?q=auth filters', async () => {
-    const res = await request(app.getHttpServer())
-      .get('/api/services?q=auth')
-      .expect(200);
-
+    const res = await request(app.getHttpServer()).get('/api/services?q=auth').expect(200);
     expect(res.body.some((s: any) => s.key === 'auth-gateway')).toBe(true);
   });
 
@@ -80,9 +70,7 @@ describe('Services (integration)', () => {
   });
 
   it('GET /api/services/id/:id returns one', async () => {
-    const svc = await prisma.service.findUnique({
-      where: { key: 'auth-gateway' },
-    });
+    const svc = await prisma.service.findUnique({ where: { key: 'auth-gateway' } });
 
     const res = await request(app.getHttpServer())
       .get(`/api/services/id/${svc!.id}`)
@@ -92,8 +80,6 @@ describe('Services (integration)', () => {
   });
 
   it('GET /api/services/key/:key returns 404 when not found', async () => {
-    await request(app.getHttpServer())
-      .get('/api/services/key/nope')
-      .expect(404);
+    await request(app.getHttpServer()).get('/api/services/key/nope').expect(404);
   });
 });

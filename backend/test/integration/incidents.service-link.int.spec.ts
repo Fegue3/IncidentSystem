@@ -1,9 +1,9 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+// test/integration/incidents.service-link.int.spec.ts
 import request from 'supertest';
-import { AppModule } from '../../src/app.module';
+import { INestApplication } from '@nestjs/common';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { resetDb } from './_helpers/prisma-reset';
+import { createIntegrationApp } from './_helpers/create-integration-app';
 
 describe('Incidents primaryService (integration)', () => {
   let app: INestApplication;
@@ -12,22 +12,16 @@ describe('Incidents primaryService (integration)', () => {
   let reporterId: string;
 
   beforeAll(async () => {
-    const mod = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-
-    app = mod.createNestApplication();
-    app.setGlobalPrefix('api');
-    app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
-    await app.init();
-
-    prisma = app.get(PrismaService);
+    const setup = await createIntegrationApp();
+    app = setup.app;
+    prisma = setup.prisma;
   });
 
   beforeEach(async () => {
     await resetDb(prisma);
 
     const team = await prisma.team.create({ data: { name: 'IT Ops' } });
+
     const user = await prisma.user.create({
       data: {
         email: 'rep@test.local',
@@ -51,14 +45,9 @@ describe('Incidents primaryService (integration)', () => {
     await app.close();
   });
 
-  function authHeader() {
-    return { Authorization: `Bearer fake` };
-  }
-
   it('POST /api/incidents accepts primaryServiceKey', async () => {
     const res = await request(app.getHttpServer())
       .post('/api/incidents')
-      .set(authHeader())
       .send({
         title: 't',
         description: 'd',
@@ -84,7 +73,6 @@ describe('Incidents primaryService (integration)', () => {
 
     const res = await request(app.getHttpServer())
       .patch(`/api/incidents/${created.id}`)
-      .set(authHeader())
       .send({ primaryServiceKey: 'public-api' })
       .expect(200);
 
@@ -107,7 +95,6 @@ describe('Incidents primaryService (integration)', () => {
 
     const res = await request(app.getHttpServer())
       .patch(`/api/incidents/${created.id}`)
-      .set(authHeader())
       .send({ primaryServiceId: '' })
       .expect(200);
 
@@ -140,7 +127,6 @@ describe('Incidents primaryService (integration)', () => {
 
     const res = await request(app.getHttpServer())
       .get('/api/incidents?primaryServiceKey=auth-gateway')
-      .set(authHeader())
       .expect(200);
 
     expect(Array.isArray(res.body)).toBe(true);
