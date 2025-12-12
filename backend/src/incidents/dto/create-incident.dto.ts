@@ -28,6 +28,16 @@ export class CreateIncidentDto {
   @IsOptional()
   teamId?: string;
 
+  //serviço afetado (principal)
+  @IsString()
+  @IsOptional()
+  primaryServiceId?: string;
+
+  //alternativa por key (mais amigável com seed)
+  @IsString()
+  @IsOptional()
+  primaryServiceKey?: string;
+
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
