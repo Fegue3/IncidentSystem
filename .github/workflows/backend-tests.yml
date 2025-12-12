@@ -14,32 +14,34 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # SonarCloud curte ter history para ver "new code"
+          fetch-depth: 0
 
       - name: Show Docker version
         run: docker version
 
-      - name: Start dependencies (Postgres + Redis)
-        run: docker compose -f docker-compose.yml up -d postgres redis
+      - name: Start dependencies (Postgres + Redis) for CI
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d postgres redis
 
-      - name: Run backend tests inside Docker (with coverage)
+      - name: Run backend tests inside Docker (unit + integration + e2e + coverage)
         run: |
-          docker compose -f docker-compose.yml run --rm backend sh -lc "
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml run --rm backend sh -lc "
+            until pg_isready -h postgres -U postgres -d incidentsdb_test; do echo 'waiting postgres...'; sleep 1; done &&
             npm ci &&
             npx prisma migrate deploy &&
+            npm run test:unit &&
+            npm run test:integration &&
+            npm run test:e2e &&
             npm run test:ci
           "
 
       - name: Shutdown docker-compose
         if: always()
-        run: docker compose -f docker-compose.yml down -v
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
 
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@ffc3010689be73b8e5ae0c57ce35968afd7909e8
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # token automático do GitHub
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}     # secret que criaste no repo
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
-          projectBaseDir: ./backend   # onde está o sonar-project.properties
-
-          
+          projectBaseDir: ./backend
