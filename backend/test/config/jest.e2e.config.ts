@@ -2,13 +2,13 @@ import type { Config } from 'jest';
 
 const config: Config = {
   moduleFileExtensions: ['js', 'json', 'ts'],
-  rootDir: '..',
-  testRegex: 'e2e/.*\\.spec\\.ts$',
-  transform: { '^.+\\.(t|j)s$': 'ts-jest' },
-  collectCoverageFrom: ['../src/**/*.ts', '!../src/main.ts'],
-  coverageDirectory: '../coverage/e2e',
+  rootDir: '../..',
   testEnvironment: 'node',
-  clearMocks: true,
+  transform: { '^.+\\.(t|j)s$': 'ts-jest' },
+  testMatch: ['<rootDir>/test/e2e/**/*.e2e.spec.ts'],
+  testPathIgnorePatterns: ['/node_modules/', '/dist/'],
+  maxWorkers: 1,
+  testTimeout: 60000,
 };
 
 export default config;
