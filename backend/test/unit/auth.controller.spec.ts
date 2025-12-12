@@ -4,6 +4,9 @@ import { AuthService } from '../../src/auth/auth.service';
 
 describe('AuthController (unit)', () => {
   let controller: AuthController;
+
+  const TEST_PASS = 'TEST_PASSWORD__NOT_A_SECRET';
+
   const authMock = {
     register: jest.fn(),
     login: jest.fn(),
@@ -31,20 +34,20 @@ describe('AuthController (unit)', () => {
 
     const res = await controller.register({
       email: 'a@a.com',
-      password: 'StrongPass1!',
+      password: TEST_PASS,
       name: 'Ana',
     } as any);
 
-    expect(authMock.register).toHaveBeenCalledWith('a@a.com', 'StrongPass1!', 'Ana');
+    expect(authMock.register).toHaveBeenCalledWith('a@a.com', TEST_PASS, 'Ana');
     expect(res).toEqual({ ok: true });
   });
 
   it('login delega para auth.login', async () => {
     authMock.login.mockResolvedValue({ accessToken: 'a', refreshToken: 'b' });
 
-    const res = await controller.login({ email: 'a@a.com', password: 'StrongPass1!' } as any);
+    const res = await controller.login({ email: 'a@a.com', password: TEST_PASS } as any);
 
-    expect(authMock.login).toHaveBeenCalledWith('a@a.com', 'StrongPass1!');
+    expect(authMock.login).toHaveBeenCalledWith('a@a.com', TEST_PASS);
     expect(res.accessToken).toBeDefined();
     expect(res.refreshToken).toBeDefined();
   });
@@ -92,10 +95,14 @@ describe('AuthController (unit)', () => {
 
     const res = await controller.changePassword(
       { user: { sub: 'u1' } } as any,
-      { oldPassword: 'Old1!', newPassword: 'New1!' } as any,
+      { oldPassword: TEST_PASS, newPassword: 'NEW_TEST_PASSWORD__NOT_A_SECRET' } as any,
     );
 
-    expect(authMock.changePassword).toHaveBeenCalledWith('u1', 'Old1!', 'New1!');
+    expect(authMock.changePassword).toHaveBeenCalledWith(
+      'u1',
+      TEST_PASS,
+      'NEW_TEST_PASSWORD__NOT_A_SECRET',
+    );
     expect(res).toEqual({ ok: true });
   });
 
@@ -120,9 +127,15 @@ describe('AuthController (unit)', () => {
   it('resetPassword delega', async () => {
     authMock.resetPassword.mockResolvedValue({ ok: true });
 
-    const res = await controller.resetPassword({ token: 't', newPassword: 'New1!' } as any);
+    const res = await controller.resetPassword({
+      token: 't',
+      newPassword: 'RESET_TEST_PASSWORD__NOT_A_SECRET',
+    } as any);
 
-    expect(authMock.resetPassword).toHaveBeenCalledWith('t', 'New1!');
+    expect(authMock.resetPassword).toHaveBeenCalledWith(
+      't',
+      'RESET_TEST_PASSWORD__NOT_A_SECRET',
+    );
     expect(res).toEqual({ ok: true });
   });
 });
