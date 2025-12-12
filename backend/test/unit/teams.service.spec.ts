@@ -1,6 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
-import { TeamsService } from '../src/teams/teams.service';
-import { PrismaService } from '../src/prisma/prisma.service';
+import { TeamsService } from '../../src/teams/teams.service';
+import { PrismaService } from '../../src/prisma/prisma.service';
 
 // mock simples do Prisma
 const createMockPrisma = () => ({

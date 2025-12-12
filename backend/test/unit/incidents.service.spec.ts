@@ -5,13 +5,13 @@ import {
   Severity,
   TimelineEventType,
 } from '@prisma/client';
-import { IncidentsService } from '../src/incidents/incidents.service';
-import { PrismaService } from '../src/prisma/prisma.service';
-import { CreateIncidentDto } from '../src/incidents/dto/create-incident.dto';
-import { UpdateIncidentDto } from '../src/incidents/dto/update-incident.dto';
-import { ChangeStatusDto } from '../src/incidents/dto/change-status.dto';
-import { AddCommentDto } from '../src/incidents/dto/add-comment.dto';
-import { ListIncidentsDto } from '../src/incidents/dto/list-incidents.dto';
+import { IncidentsService } from '../../src/incidents/incidents.service';
+import { PrismaService } from '../../src/prisma/prisma.service';
+import { CreateIncidentDto } from '../../src/incidents/dto/create-incident.dto';
+import { UpdateIncidentDto } from '../../src/incidents/dto/update-incident.dto';
+import { ChangeStatusDto } from '../../src/incidents/dto/change-status.dto';
+import { AddCommentDto } from '../../src/incidents/dto/add-comment.dto';
+import { ListIncidentsDto } from '../../src/incidents/dto/list-incidents.dto';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 describe('IncidentsService', () => {

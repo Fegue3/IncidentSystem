@@ -1,12 +1,12 @@
 // test/incidents.controller.spec.ts
 import { Test, TestingModule } from '@nestjs/testing';
-import { IncidentsController } from '../src/incidents/incidents.controller';
-import { IncidentsService } from '../src/incidents/incidents.service';
-import { CreateIncidentDto } from '../src/incidents/dto/create-incident.dto';
-import { UpdateIncidentDto } from '../src/incidents/dto/update-incident.dto';
-import { ChangeStatusDto } from '../src/incidents/dto/change-status.dto';
-import { AddCommentDto } from '../src/incidents/dto/add-comment.dto';
-import { ListIncidentsDto } from '../src/incidents/dto/list-incidents.dto';
+import { IncidentsController } from '../../src/incidents/incidents.controller';
+import { IncidentsService } from '../../src/incidents/incidents.service';
+import { CreateIncidentDto } from '../../src/incidents/dto/create-incident.dto';
+import { UpdateIncidentDto } from '../../src/incidents/dto/update-incident.dto';
+import { ChangeStatusDto } from '../../src/incidents/dto/change-status.dto';
+import { AddCommentDto } from '../../src/incidents/dto/add-comment.dto';
+import { ListIncidentsDto } from '../../src/incidents/dto/list-incidents.dto';
 
 describe('IncidentsController', () => {
   let controller: IncidentsController;

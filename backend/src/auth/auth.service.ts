@@ -93,7 +93,6 @@ export class AuthService {
         email: u.email,
         name: u.name,
         role: u.role,
-        // 👇 idem aqui
         teamId: (u as any).teamId ?? null,
       },
       ...tokens,
