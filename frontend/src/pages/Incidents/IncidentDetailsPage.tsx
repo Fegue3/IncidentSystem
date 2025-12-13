@@ -321,10 +321,10 @@ function getGenericFieldChanges(ev: TimelineEvent): GenericChange[] {
 
     const label =
       c.key === "title" ? "Título" :
-      c.key === "description" ? "Descrição" :
-      c.key === "primaryServiceId" ? "Serviço" :
-      c.key === "teamId" ? "Equipa" :
-      c.key;
+        c.key === "description" ? "Descrição" :
+          c.key === "primaryServiceId" ? "Serviço" :
+            c.key === "teamId" ? "Equipa" :
+              c.key;
 
     out.push({
       label,
@@ -366,6 +366,11 @@ function formatTimelineType(kind: Kind): string {
 /* -------------------------- dot + highlight -------------------------- */
 
 function getTimelineDotClass(ev: TimelineEvent, kind: Kind, sev: SeverityChange | null): string {
+  if (kind === "FIELDS" && ev.message) {
+    const m = ev.message.toLowerCase();
+    if (m.includes("ok")) return "timeline__dot--success";
+    if (m.includes("fail")) return "timeline__dot--error";
+  }
   if (kind === "STATUS" && ev.toStatus) {
     const s = ev.toStatus;
     if (s === "NEW" || s === "TRIAGED") return "timeline__dot--open";
@@ -1033,7 +1038,7 @@ export function IncidentDetailsPage() {
                         <span className="timeline__type">{typeLabel}</span>
                       </p>
 
-                      {showMsg && <p className="timeline__message">{msg}</p>}
+                      {showMsg && kind !== "FIELDS" && <p className="timeline__message">{msg}</p>}
 
                       {/* STATUS CHANGE */}
                       {event.fromStatus && event.toStatus && (
@@ -1098,6 +1103,11 @@ export function IncidentDetailsPage() {
                           ))}
                         </ul>
                       )}
+
+                      {kind === "FIELDS" && genericChanges.length === 0 && showMsg && (
+                        <p className="timeline__message">{msg}</p>
+                      )}
+
                     </div>
                   </li>
                 );
