@@ -179,7 +179,6 @@
   align-items: flex-start;
   gap: 12px;
   margin-bottom: 8px;
-
   min-height: 86px;
 }
 
@@ -231,7 +230,7 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 8px; /* ligeiramente mais compacto */
   max-height: 520px;
   overflow-y: auto;
   padding-right: 4px;
@@ -260,16 +259,16 @@
   border: none;
   cursor: pointer;
   border-radius: 16px;
-  padding: 12px 14px;
+  padding: 12px 14px; /* um pouco mais compacto */
   background: #f7f3ec;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 8px; /* ↓ gap geral do card */
   transition:
     background 120ms ease-in-out,
     box-shadow 120ms ease-in-out,
     transform 80ms ease-in-out;
-  min-height: 120px;
+  min-height: 150px;
   overflow: hidden;
 }
 
@@ -279,84 +278,99 @@
   transform: translateY(-1px);
 }
 
-/* topo: título */
+/* Linha 1: título + chips */
 
-.incident-card__header-row {
+.incident-card__top {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 15px; /* ↓ menos espaço */
 }
 
 .incident-card__title {
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 800;
   color: #111827;
+  margin: 0;
+  flex: 1;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* meio: descrição + chips */
-
-.incident-card__middle {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-.incident-card__description-block {
-  flex: 1;
-  font-size: 12px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.incident-card__label {
-  font-weight: 600;
-  color: #7b1f51;
-  margin-right: 2px;
-}
-
-.incident-card__value {
-  color: #374151;
-}
-
-.incident-card__description {
-  overflow-wrap: anywhere;
-}
-
-/* chips de estado/prioridade à direita */
-
-.incident-card__side {
-  display: flex;
-  flex-direction: row;
+.incident-card__chips {
+  display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Linha 2: serviço (mais pequeno) */
+
+.incident-card__service-row {
+  display: flex;
+  width: 100%;
+}
+
+.incident-card__service-pill {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 10px; /* ↓ altura do pill */
+  border-radius: 999px;
+  background: rgba(27, 42, 65, 0.05);
+  border: 1px solid rgba(27, 42, 65, 0.12);
+  color: #111827;
+  font-size: 11px; /* ↓ texto mais pequeno */
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.incident-card__status-chip,
-.incident-card__priority-chip {
-  font-size: 11px;
-  padding: 4px 14px;
+/* Linha 3: descrição */
+
+.incident-card__desc {
+  font-size: 12px;
+  color: #374151;
+  margin: 4px 0 0; /* ↓ menos espaço */
+  line-height: 1.2rem;
 }
 
-/* fundo: meta consistente */
+.incident-card__desc-label {
+  font-weight: 700;
+  color: #7b1f51;
+}
+
+/* Linha 4: meta (Owner/Criado) — ↓ gap com a descrição */
 
 .incident-card__footer {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  margin-top: auto;
+  margin-top: 4px; /* ↓ principal: menos espaço entre descrição e owner */
   font-size: 11px;
   color: #4b5563;
 }
 
 .incident-card__meta-item {
   display: flex;
-  gap: 4px;
+  gap: 6px;
+  align-items: center;
+}
+
+.incident-card__meta-label {
+  font-weight: 700;
+  color: #7b1f51;
+}
+
+.incident-card__meta-value {
+  color: #374151;
 }
 
 .incident-card__owner-badge {
@@ -375,9 +389,9 @@
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  padding: 2px 10px;
+  padding: 4px 12px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -412,28 +426,29 @@
   color: #111827;
 }
 
-/* priority */
+/* severidade (SEV1–SEV4) */
 
-.chip--priority {
+.chip--severity {
   background: var(--color-grey-light);
+  color: var(--color-navy);
 }
 
-.chip--priority-p1 {
+.chip--severity-sev1 {
   background: rgba(217, 83, 79, 0.18);
   color: #7f1d1d;
 }
 
-.chip--priority-p2 {
+.chip--severity-sev2 {
   background: rgba(255, 179, 71, 0.18);
   color: #92400e;
 }
 
-.chip--priority-p3 {
+.chip--severity-sev3 {
   background: rgba(37, 99, 235, 0.16);
   color: #1d4ed8;
 }
 
-.chip--priority-p4 {
+.chip--severity-sev4 {
   background: rgba(148, 163, 184, 0.24);
   color: #0f172a;
 }
@@ -468,12 +483,7 @@
     font-size: 24px;
   }
 
-  .incident-card__middle {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .incident-card__side {
+  .incident-card__service-pill {
     justify-content: flex-start;
   }
 }
