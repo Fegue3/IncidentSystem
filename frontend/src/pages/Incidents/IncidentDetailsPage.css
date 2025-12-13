@@ -12,7 +12,6 @@
   gap: 8px;
 }
 
-/* nova barra com voltar à esquerda e apagar à direita */
 .incident-details__top-bar {
   display: flex;
   justify-content: space-between;
@@ -20,7 +19,6 @@
   width: 100%;
 }
 
-/* botão voltar com um bocadinho mais de padding */
 .incident-details__back-link {
   align-self: flex-start;
   font-size: 13px;
@@ -28,16 +26,6 @@
   letter-spacing: 0.12em;
   padding-inline: 18px;
   padding-block: 8px;
-}
-
-/* quando estiver só com a classe antiga (estado de erro) */
-.incident-details__back-link:not(.incident-btn) {
-  background: #ffffff;
-  border-radius: 999px;
-  border: 1px solid var(--color-navy);
-  color: var(--color-navy);
-  font-weight: 600;
-  cursor: pointer;
 }
 
 .incident-details__id {
@@ -60,10 +48,22 @@
 }
 
 .incident-details__pill {
-  padding: 2px 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 999px;
-  background: #e5e7eb;
-  font-size: 12px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: rgba(27, 42, 65, 0.08);
+  color: var(--color-navy);
+}
+
+.incident-details__pill--service {
+  background: rgba(59, 130, 246, 0.1);
+  color: #1d4ed8;
 }
 
 .incident-details__subtitle {
@@ -72,7 +72,7 @@
   margin-top: 4px;
 }
 
-/* estados / botões genéricos */
+/* estados / botões */
 
 .incident-details__status {
   font-size: 14px;
@@ -93,11 +93,8 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
   cursor: pointer;
-  transition:
-    background 140ms ease-in-out,
-    color 140ms ease-in-out,
-    box-shadow 140ms ease-in-out,
-    transform 120ms ease-in-out,
+  transition: background 140ms ease-in-out, color 140ms ease-in-out,
+    box-shadow 140ms ease-in-out, transform 120ms ease-in-out,
     border-color 140ms ease-in-out;
 }
 
@@ -122,7 +119,6 @@
   background: rgba(27, 42, 65, 0.06);
 }
 
-/* botão de perigo (apagar incidente) */
 .incident-btn--danger {
   background: var(--color-red);
   color: #ffffff;
@@ -135,7 +131,6 @@
   transform: translateY(-1px);
 }
 
-/* responsivo: em ecrãs pequenos, empilhar os botões */
 @media (max-width: 640px) {
   .incident-details__top-bar {
     flex-direction: column;
@@ -149,7 +144,7 @@
   }
 }
 
-/* chips reutilizados */
+/* chips */
 
 .chip {
   display: inline-flex;
@@ -163,6 +158,7 @@
   text-transform: uppercase;
 }
 
+/* status */
 .chip--status {
   background: var(--color-grey-light);
   color: var(--color-navy);
@@ -191,26 +187,28 @@
   color: #111827;
 }
 
-.chip--priority {
+/* severity */
+.chip--severity {
   background: var(--color-grey-light);
+  color: var(--color-navy);
 }
 
-.chip--priority-p1 {
+.chip--severity-sev1 {
   background: rgba(217, 83, 79, 0.18);
   color: #7f1d1d;
 }
 
-.chip--priority-p2 {
+.chip--severity-sev2 {
   background: rgba(255, 179, 71, 0.18);
   color: #92400e;
 }
 
-.chip--priority-p3 {
+.chip--severity-sev3 {
   background: rgba(37, 99, 235, 0.16);
   color: #1d4ed8;
 }
 
-.chip--priority-p4 {
+.chip--severity-sev4 {
   background: rgba(148, 163, 184, 0.24);
   color: #0f172a;
 }
@@ -246,63 +244,39 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  justify-content: space-between; /* botões alinhados em baixo */
+  justify-content: flex-start;
 }
 
-/* --- MENSAGEM (ESQUERDA) VISUALMENTE IGUAL AO BLOCO DE OWNER (DIREITA) --- */
-
-/* o segundo campo do formulário da esquerda (mensagem) */
-.incident-form--status .form-field:last-of-type {
-  margin-top: 22px; /* alinha verticalmente com “Selecionar responsável” */
+.incident-form__submit {
+  align-self: flex-start;
 }
 
-/* o label da mensagem com o mesmo estilo do “Selecionar responsável” */
-.incident-form--status .form-field:last-of-type .form-field__label {
-  font-size: 11px;              /* igual ao label pequeno */
-  text-transform: none;         /* tira caps */
-  letter-spacing: 0;            /* sem espaçamento extra */
-  font-weight: 500;
-  color: #6b7280;
+/* ✅ Mensagem (coluna esquerda) */
+.incident-form__message-field {
+  margin-top: 65px;
+  width: 100%;
 }
-
-/* ------------------------------------------------------------------------ */
 
 .incident-owner {
-  margin-top: 22px;             /* casa com a margem da mensagem */
-  padding-top: 0;               /* sem traço a separar */
-  border-top: none;
+  margin-top: 22px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-}
-
-.incident-owner__row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   gap: 8px;
 }
 
-.incident-owner__current {
-  font-size: 13px;
-  color: #111827;
-}
-
-.incident-owner__badge {
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: rgba(148, 163, 184, 0.24);
-  font-size: 11px;
-  font-weight: 600;
-  color: #374151;
+.incident-owner__select-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .incident-owner__btn {
   align-self: flex-start;
 }
 
-.incident-form__submit {
-  align-self: flex-start;
+.incident-owner__hint {
+  font-size: 12px;
+  color: #6b7280;
 }
 
 /* campos */
@@ -320,7 +294,6 @@
   color: #6b7280;
 }
 
-/* label “pequeno” usado à direita e agora também imitado à esquerda */
 .form-field__label-sm {
   font-size: 11px;
   text-transform: none;
@@ -370,11 +343,6 @@
   height: 100%;
 }
 
-.incident-panel--main {
-  display: flex;
-  flex-direction: column;
-}
-
 .incident-panel__title {
   font-size: 18px;
 }
@@ -382,8 +350,6 @@
 .incident-panel__title--mt {
   margin-top: 8px;
 }
-
-/* descrição */
 
 .incident-panel__text {
   font-size: 14px;
@@ -430,10 +396,11 @@
   padding-bottom: 16px;
 }
 
+/* ✅ dot alinhado/centrado */
 .timeline__dot {
   position: absolute;
   left: 24px;
-  top: 14px;
+  top: 50%;
   width: 18px;
   height: 18px;
   border-radius: 999px;
@@ -460,6 +427,39 @@
   background: #9ca3af;
 }
 
+/* dots por tipo */
+.timeline__dot--owner {
+  background: #3b82f6;
+}
+
+.timeline__dot--service {
+  background: #2563eb;
+}
+
+.timeline__dot--comment {
+  background: #64748b;
+}
+
+.timeline__dot--severity {
+  background: #94a3b8;
+}
+
+.timeline__dot--sev1 {
+  background: #ef4444;
+}
+
+.timeline__dot--sev2 {
+  background: #f59e0b;
+}
+
+.timeline__dot--sev3 {
+  background: #3b82f6;
+}
+
+.timeline__dot--sev4 {
+  background: #94a3b8;
+}
+
 .timeline__content {
   font-size: 13px;
 }
@@ -479,9 +479,106 @@
   color: #111827;
 }
 
-.timeline__status-change {
+/* pill / rows */
+
+.timeline__change-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 4px 6px;
+  border-radius: 10px;
+  background: rgba(148, 163, 184, 0.12);
+  width: fit-content;
+}
+
+.timeline__change-row--owner {
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.timeline__change-row--service {
+  background: rgba(37, 99, 235, 0.12);
+}
+
+.timeline__change-row--severity {
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.timeline__change-row--sev1 {
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.timeline__change-row--sev2 {
+  background: rgba(245, 158, 11, 0.12);
+}
+
+.timeline__change-row--sev3 {
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.timeline__change-row--sev4 {
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.timeline__change-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #6b7280;
+}
+
+.timeline__arrow {
+  font-weight: 900;
+  color: #9ca3af;
+}
+
+.timeline__user-badge {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.24);
+  font-size: 11px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.timeline__user-badge--none {
+  background: rgba(148, 163, 184, 0.18);
+  color: #4b5563;
+  font-weight: 600;
+}
+
+/* lista de field updates genéricos */
+.timeline__kv {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(148, 163, 184, 0.12);
+  list-style: none;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.timeline__kv-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   font-size: 12px;
   color: #4b5563;
+  line-height: 1.35;
+}
+
+.timeline__kv-key {
+  font-weight: 700;
+  color: #6b7280;
+}
+
+.timeline__kv-val {
+  color: #111827;
+}
+
+.timeline__kv-arrow {
+  font-weight: 900;
+  color: #9ca3af;
 }
 
 .incident-timeline-toggle {
