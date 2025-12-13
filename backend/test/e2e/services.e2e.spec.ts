@@ -8,6 +8,9 @@ describe('Services (e2e)', () => {
     const ctx = await ctxPromise;
     await resetDb(ctx.prisma);
 
+    // ✅ como o resetDb do e2e-utils não apaga Service, limpamos aqui
+    await ctx.prisma.service.deleteMany({});
+
     await ctx.prisma.team.create({ data: { name: 'SRE' } });
     await ctx.prisma.service.create({
       data: { key: 'auth-gateway', name: 'Auth Gateway', isActive: true },
@@ -24,10 +27,11 @@ describe('Services (e2e)', () => {
 
   it('lists services (auth required)', async () => {
     const ctx = await ctxPromise;
+
     const { accessToken } = await registerUser(
       ctx.http,
       's@e2e.local',
-      '123456',
+      'StrongPass1!',
       'Services User',
     );
 
@@ -41,10 +45,11 @@ describe('Services (e2e)', () => {
 
   it('filters by q and isActive', async () => {
     const ctx = await ctxPromise;
+
     const { accessToken } = await registerUser(
       ctx.http,
       's2@e2e.local',
-      '123456',
+      'StrongPass1!',
       'Services User2',
     );
 
@@ -65,10 +70,11 @@ describe('Services (e2e)', () => {
 
   it('gets service by key and id', async () => {
     const ctx = await ctxPromise;
+
     const { accessToken } = await registerUser(
       ctx.http,
       's3@e2e.local',
-      '123456',
+      'StrongPass1!',
       'Services User3',
     );
 

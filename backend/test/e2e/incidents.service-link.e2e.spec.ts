@@ -8,7 +8,11 @@ describe('Incidents primaryService (e2e)', () => {
     const ctx = await ctxPromise;
     await resetDb(ctx.prisma);
 
+    // ✅ como o resetDb do e2e-utils não apaga Service, limpamos aqui
+    await ctx.prisma.service.deleteMany({});
+
     const team = await ctx.prisma.team.create({ data: { name: 'IT Ops' } });
+
     await ctx.prisma.service.create({
       data: { key: 'auth-gateway', name: 'Auth Gateway', isActive: true },
     });
@@ -34,12 +38,9 @@ describe('Incidents primaryService (e2e)', () => {
 
   it('create -> update service -> remove service', async () => {
     const ctx = await ctxPromise;
-    const { accessToken } = await registerUser(
-      ctx.http,
-      'i@e2e.local',
-      '123456',
-      'Inc User',
-    );
+
+    // ✅ password forte para passar validação do DTO
+    const { accessToken } = await registerUser(ctx.http, 'i@e2e.local', 'StrongPass1!', 'Inc User');
 
     const created = await request(ctx.http)
       .post('/api/incidents')
@@ -73,12 +74,8 @@ describe('Incidents primaryService (e2e)', () => {
 
   it('GET /api/incidents/:id includes primaryService', async () => {
     const ctx = await ctxPromise;
-    const { accessToken } = await registerUser(
-      ctx.http,
-      'i2@e2e.local',
-      '123456',
-      'Inc User2',
-    );
+
+    const { accessToken } = await registerUser(ctx.http, 'i2@e2e.local', 'StrongPass1!', 'Inc User2');
 
     const created = await request(ctx.http)
       .post('/api/incidents')
@@ -101,12 +98,8 @@ describe('Incidents primaryService (e2e)', () => {
 
   it('GET /api/incidents?primaryServiceKey=... filters', async () => {
     const ctx = await ctxPromise;
-    const { accessToken } = await registerUser(
-      ctx.http,
-      'i3@e2e.local',
-      '123456',
-      'Inc User3',
-    );
+
+    const { accessToken } = await registerUser(ctx.http, 'i3@e2e.local', 'StrongPass1!', 'Inc User3');
 
     await request(ctx.http)
       .post('/api/incidents')
