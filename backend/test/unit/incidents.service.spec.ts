@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { IncidentStatus, Severity, TimelineEventType } from '@prisma/client';
 import { IncidentsService } from '../../src/incidents/incidents.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
+import { NotificationsService } from '../../src/notifications/notifications.service';
 import { CreateIncidentDto } from '../../src/incidents/dto/create-incident.dto';
 import { UpdateIncidentDto } from '../../src/incidents/dto/update-incident.dto';
 import { ChangeStatusDto } from '../../src/incidents/dto/change-status.dto';
@@ -83,6 +84,13 @@ describe('IncidentsService', () => {
         {
           provide: PrismaService,
           useValue: prismaMock,
+        },
+        {
+          provide: NotificationsService,
+          useValue: {
+            sendDiscord: jest.fn().mockResolvedValue({ ok: true }),
+            triggerPagerDuty: jest.fn().mockResolvedValue({ ok: true }),
+          },
         },
       ],
     }).compile();

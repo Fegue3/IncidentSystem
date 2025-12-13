@@ -16,10 +16,12 @@ import { UpdateIncidentDto } from './dto/update-incident.dto';
 import { ChangeStatusDto } from './dto/change-status.dto';
 import { AddCommentDto } from './dto/add-comment.dto';
 import { ListIncidentsDto } from './dto/list-incidents.dto';
+import { NotificationsService } from '../notifications/notifications.service';
+
 
 @Injectable()
 export class IncidentsService {
-  constructor(private prisma: PrismaService) { }
+  constructor(private prisma: PrismaService, private readonly notificationsService: NotificationsService) { }
 
   private validateStatusTransition(current: IncidentStatus, next: IncidentStatus) {
     const allowed: Record<IncidentStatus, IncidentStatus[]> = {
@@ -160,6 +162,46 @@ export class IncidentsService {
             authorId: reporterId,
             type: TimelineEventType.FIELD_UPDATE,
             message: `Serviço definido: ${incident.primaryService?.name ?? 'Service'}`,
+          },
+        });
+      }
+
+      if (incident.severity === Severity.SEV1 || incident.severity === Severity.SEV2) {
+        const shortId = incident.id.slice(0, 8).toUpperCase();
+        const service = incident.primaryService?.name ?? '—';
+        const team = incident.team?.name ?? '—';
+        const owner =
+          incident.assignee?.name ??
+          incident.assignee?.email ??
+          'Sem owner';
+
+        const url = process.env.FRONTEND_BASE_URL
+          ? `${process.env.FRONTEND_BASE_URL}/incidents/${incident.id}`
+          : null;
+
+        const msg =
+          `🚨 **${incident.severity}** | **${incident.title}**\n` +
+          `• ID: \`${shortId}\`\n` +
+          `• Status: **${incident.status}**\n` +
+          `• Serviço: **${service}**\n` +
+          `• Equipa: **${team}**\n` +
+          `• Owner: **${owner}**\n` +
+          (url ? `• Link: ${url}` : '');
+
+        const discord = await this.notificationsService.sendDiscord(msg);
+
+        const pagerduty = await this.notificationsService.triggerPagerDuty(
+          incident.title,
+          incident.severity,
+          incident.id,
+        );
+
+        await tx.incidentTimelineEvent.create({
+          data: {
+            incidentId: incident.id,
+            authorId: reporterId,
+            type: TimelineEventType.FIELD_UPDATE, // não invento enum novo
+            message: `Notificações: Discord=${discord.ok ? 'OK' : 'FAIL'} | PagerDuty=${pagerduty.ok ? 'OK' : 'FAIL'}`,
           },
         });
       }
@@ -425,6 +467,20 @@ export class IncidentsService {
       }),
     ]);
 
+    if (updated.severity === Severity.SEV1 || updated.severity === Severity.SEV2) {
+      const msg = `📣 ${updated.severity} | ${updated.title} | status: ${from} → ${to}`;
+      const discord = await this.notificationsService.sendDiscord(msg);
+
+      await this.prisma.incidentTimelineEvent.create({
+        data: {
+          incidentId: id,
+          authorId: userId,
+          type: TimelineEventType.FIELD_UPDATE,
+          message: `Notificação de status: Discord=${discord.ok ? 'OK' : 'FAIL'}`,
+        },
+      });
+    }
+
     return updated;
   }
 
@@ -476,12 +532,30 @@ export class IncidentsService {
       });
     }
 
+    await this.prisma.incidentTimelineEvent.create({
+      data: {
+        incidentId: id,
+        authorId: userId,
+        type: TimelineEventType.FIELD_UPDATE,
+        message: 'Subscrição de notificações ativada',
+      },
+    });
+
     return { subscribed: true };
   }
 
   async unsubscribe(id: string, userId: string) {
     await this.prisma.notificationSubscription.deleteMany({
       where: { userId, incidentId: id },
+    });
+
+    await this.prisma.incidentTimelineEvent.create({
+      data: {
+        incidentId: id,
+        authorId: userId,
+        type: TimelineEventType.FIELD_UPDATE,
+        message: 'Subscrição de notificações desativada',
+      },
     });
 
     return { subscribed: false };
