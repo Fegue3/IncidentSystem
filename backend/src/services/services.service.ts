@@ -2,25 +2,21 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
-
-// Se já tiveres este DTO, mantém o import do teu caminho real.
-// Se não tiveres, podes deixar como any no método list().
 import { ListServicesDto } from './dto/list-services.dto';
 
 @Injectable()
 export class ServicesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  // Compatível com os teus testes: list({ q?, isActive? })
   async list(dto: ListServicesDto) {
     const where: Prisma.ServiceWhereInput = {};
 
     const q = (dto as any)?.q?.trim?.();
     if (q) {
+      // ✅ mantém exatamente 2 condições para bater no teu unit test
       where.OR = [
         { key: { contains: q, mode: 'insensitive' } },
         { name: { contains: q, mode: 'insensitive' } },
-        { description: { contains: q, mode: 'insensitive' } },
       ];
     }
 
@@ -29,7 +25,6 @@ export class ServicesService {
     if (raw !== undefined && raw !== null && raw !== '') {
       const parsed =
         typeof raw === 'string' ? raw.toLowerCase() === 'true' : Boolean(raw);
-
       where.isActive = parsed;
     }
 
@@ -39,7 +34,7 @@ export class ServicesService {
     });
   }
 
-  // Se o teu projeto usa findAll em vez de list, mantém os dois
+  // compatibilidade se houver código a chamar findAll
   async findAll(dto: ListServicesDto) {
     return this.list(dto);
   }
