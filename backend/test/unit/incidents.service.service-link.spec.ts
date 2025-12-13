@@ -16,6 +16,7 @@ describe('IncidentsService - primaryService linking (unit)', () => {
     },
     incidentTimelineEvent: {
       create: jest.fn(),
+      createMany: jest.fn(), // ✅ FIX
     },
     notificationSubscription: {
       create: jest.fn(),
@@ -81,6 +82,9 @@ describe('IncidentsService - primaryService linking (unit)', () => {
   it('update() should disconnect primaryService when empty string', async () => {
     prisma.incident.findUnique.mockResolvedValueOnce({
       id: 'inc1',
+      title: 't',
+      description: 'd',
+      severity: Severity.SEV3,
       assigneeId: null,
       teamId: null,
       primaryServiceId: 'svc1',

@@ -1,9 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import {
-  IncidentStatus,
-  Severity,
-  TimelineEventType,
-} from '@prisma/client';
+import { IncidentStatus, Severity, TimelineEventType } from '@prisma/client';
 import { IncidentsService } from '../../src/incidents/incidents.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { CreateIncidentDto } from '../../src/incidents/dto/create-incident.dto';
@@ -25,6 +21,7 @@ describe('IncidentsService', () => {
       },
       incidentTimelineEvent: {
         create: jest.fn(),
+        createMany: jest.fn(), // ✅ FIX
         findMany: jest.fn(),
       },
       incidentComment: {
@@ -56,6 +53,7 @@ describe('IncidentsService', () => {
       },
       incidentTimelineEvent: {
         create: jest.fn(),
+        createMany: jest.fn(), // ✅ FIX
         findMany: jest.fn(),
         deleteMany: jest.fn(),
       },
@@ -228,6 +226,9 @@ describe('IncidentsService', () => {
 
     prisma.incident.findUnique.mockResolvedValue({
       id: 'inc-1',
+      title: 'Old',
+      description: 'Old desc',
+      severity: Severity.SEV3,
       assigneeId: 'user-9',
       teamId: null,
       primaryServiceId: null,
@@ -242,7 +243,7 @@ describe('IncidentsService', () => {
       primaryService: null,
     } as any);
 
-    prisma.__tx.incidentTimelineEvent.create.mockResolvedValue({} as any);
+    prisma.__tx.incidentTimelineEvent.createMany.mockResolvedValue({ count: 1 });
 
     const result = await service.update('inc-1', dto, 'user-1');
 
@@ -265,12 +266,15 @@ describe('IncidentsService', () => {
       },
     });
 
-    expect(prisma.__tx.incidentTimelineEvent.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        incidentId: 'inc-1',
-        authorId: 'user-1',
-        type: TimelineEventType.FIELD_UPDATE,
-      }),
+    // ✅ FIX: agora é createMany
+    expect(prisma.__tx.incidentTimelineEvent.createMany).toHaveBeenCalledWith({
+      data: expect.arrayContaining([
+        expect.objectContaining({
+          incidentId: 'inc-1',
+          authorId: 'user-1',
+          type: TimelineEventType.FIELD_UPDATE,
+        }),
+      ]),
     });
 
     expect(result.id).toBe('inc-1');
@@ -283,6 +287,9 @@ describe('IncidentsService', () => {
 
     prisma.incident.findUnique.mockResolvedValue({
       id: 'inc-1',
+      title: 't',
+      description: 'd',
+      severity: Severity.SEV3,
       assigneeId: 'user-1',
       teamId: null,
       primaryServiceId: null,
@@ -293,18 +300,22 @@ describe('IncidentsService', () => {
       assigneeId: 'user-2',
       primaryServiceId: null,
       primaryService: null,
+      assignee: { id: 'user-2', email: 'u2@test.com', name: 'User 2' },
     } as any);
 
-    prisma.__tx.incidentTimelineEvent.create.mockResolvedValue({} as any);
+    prisma.__tx.incidentTimelineEvent.createMany.mockResolvedValue({ count: 1 });
 
     await service.update('inc-1', dto, 'user-1');
 
-    expect(prisma.__tx.incidentTimelineEvent.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        incidentId: 'inc-1',
-        authorId: 'user-1',
-        type: TimelineEventType.ASSIGNMENT,
-      }),
+    // ✅ FIX: agora é createMany
+    expect(prisma.__tx.incidentTimelineEvent.createMany).toHaveBeenCalledWith({
+      data: expect.arrayContaining([
+        expect.objectContaining({
+          incidentId: 'inc-1',
+          authorId: 'user-1',
+          type: TimelineEventType.ASSIGNMENT,
+        }),
+      ]),
     });
   });
 
