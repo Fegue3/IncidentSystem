@@ -58,12 +58,8 @@ export function HomePage() {
         localStorage.getItem(TEAM_STORAGE_KEY) ?? undefined;
 
       try {
-        const data = await IncidentsAPI.list({
-          teamId: selectedTeamId,
-        });
-        if (active) {
-          setIncidents(data);
-        }
+        const data = await IncidentsAPI.list({ teamId: selectedTeamId });
+        if (active) setIncidents(data);
       } catch (e: unknown) {
         const msg =
           e instanceof Error
@@ -90,11 +86,11 @@ export function HomePage() {
   }
 
   function renderTitle(text: string) {
-    return truncate(text, 29);
+    return truncate(text, 34);
   }
 
   function renderDescription(text: string) {
-    return truncate(text, 30);
+    return truncate(text, 90);
   }
 
   function sortIncidents(list: IncidentSummary[]): IncidentSummary[] {
@@ -102,14 +98,11 @@ export function HomePage() {
       const sa = getSeverityOrder(a.severity);
       const sb = getSeverityOrder(b.severity);
 
-      if (sa !== sb) {
-        return sa - sb; // SEV1 antes de SEV2, etc.
-      }
+      if (sa !== sb) return sa - sb;
 
       const da = new Date(a.createdAt).getTime();
       const db = new Date(b.createdAt).getTime();
-
-      return da - db; // mais antigo primeiro
+      return da - db;
     });
   }
 
@@ -134,11 +127,81 @@ export function HomePage() {
     navigate(`/incidents/${id}`);
   }
 
-  // label do responsável (owner)
   function renderOwner(incident: IncidentSummary): string {
     if (!incident.assignee) return "Sem owner";
     const label = incident.assignee.name ?? incident.assignee.email;
-    return truncate(label, 10);
+    return truncate(label, 16);
+  }
+
+  function renderService(incident: IncidentSummary): string {
+    const s = incident.primaryService;
+    if (!s) return "Sem serviço";
+    return truncate(s.name, 42);
+  }
+
+  function IncidentCard({ incident }: { incident: IncidentSummary }) {
+    return (
+      <button
+        type="button"
+        className="incident-card"
+        onClick={() => handleIncidentClick(incident.id)}
+      >
+        {/* Linha 1: título + chips */}
+        <div className="incident-card__top">
+          <p className="incident-card__title">{renderTitle(incident.title)}</p>
+
+          <div className="incident-card__chips">
+            <span
+              className={`chip chip--status chip--status-${incident.status.toLowerCase()}`}
+              title={incident.status}
+            >
+              {incident.status}
+            </span>
+
+            <span
+              className={`chip chip--severity chip--severity-${incident.severity.toLowerCase()}`}
+              title={incident.severity}
+            >
+              {getSeverityShortLabel(incident.severity)}
+            </span>
+          </div>
+        </div>
+
+        {/* Linha 2: SERVIÇO (antes da descrição) */}
+        <div className="incident-card__service-row">
+          <span className="incident-card__service-pill">
+            {incident.primaryService ? renderService(incident) : "Sem serviço"}
+          </span>
+        </div>
+
+        {/* Linha 3: descrição */}
+        <p className="incident-card__desc">
+          <span className="incident-card__desc-label">Descrição:</span>{" "}
+          {renderDescription(incident.description)}
+        </p>
+
+        {/* Linha 4: meta */}
+        <div className="incident-card__footer">
+          <span className="incident-card__meta-item">
+            <span className="incident-card__meta-label">Owner:</span>{" "}
+            {incident.assignee ? (
+              <span className="incident-card__meta-value">
+                {renderOwner(incident)}
+              </span>
+            ) : (
+              <span className="incident-card__owner-badge">Sem owner</span>
+            )}
+          </span>
+
+          <span className="incident-card__meta-item">
+            <span className="incident-card__meta-label">Criado:</span>{" "}
+            <span className="incident-card__meta-value">
+              {new Date(incident.createdAt).toLocaleString()}
+            </span>
+          </span>
+        </div>
+      </button>
+    );
   }
 
   return (
@@ -172,7 +235,6 @@ export function HomePage() {
         </div>
       </header>
 
-      {/* Barra de filtros */}
       <section className="dashboard__filters" aria-label="Filtros de incidentes">
         <span className="dashboard__filters-label">Filtros</span>
         <div className="dashboard__filters-group">
@@ -222,7 +284,6 @@ export function HomePage() {
         className="dashboard__columns"
         aria-label="Incidentes organizados por estado"
       >
-        {/* OPEN */}
         <article className="incident-column incident-column--open">
           <header className="incident-column__header">
             <div>
@@ -236,9 +297,7 @@ export function HomePage() {
                 Incidentes recém-criados ou ainda à espera de triagem.
               </p>
             </div>
-            <span className="incident-column__badge">
-              {openIncidents.length}
-            </span>
+            <span className="incident-column__badge">{openIncidents.length}</span>
           </header>
 
           <div className="incident-column__body">
@@ -252,65 +311,7 @@ export function HomePage() {
               <ul className="incident-list">
                 {openIncidents.map((incident) => (
                   <li key={incident.id}>
-                    <button
-                      type="button"
-                      className="incident-card"
-                      onClick={() => handleIncidentClick(incident.id)}
-                    >
-                      {/* topo: título a ocupar tudo */}
-                      <div className="incident-card__header-row">
-                        <p className="incident-card__title">
-                          {renderTitle(incident.title)}
-                        </p>
-                      </div>
-
-                      {/* meio: descrição à esquerda, estado+severidade à direita */}
-                      <div className="incident-card__middle">
-                        <div className="incident-card__description-block">
-                          <span className="incident-card__label">
-                            Descrição:
-                          </span>
-                          <span className="incident-card__value incident-card__description">
-                            {renderDescription(incident.description)}
-                          </span>
-                        </div>
-
-                        <div className="incident-card__side">
-                          <span
-                            className={`chip chip--status chip--status-${incident.status.toLowerCase()} incident-card__status-chip`}
-                          >
-                            {incident.status}
-                          </span>
-                          <span
-                            className={`chip chip--severity chip--severity-${incident.severity.toLowerCase()} incident-card__priority-chip`}
-                          >
-                            {getSeverityShortLabel(incident.severity)}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* fundo: Owner + Criado */}
-                      <div className="incident-card__footer">
-                        <span className="incident-card__meta-item">
-                          <span className="incident-card__label">Owner:</span>
-                          {incident.assignee ? (
-                            <span className="incident-card__value">
-                              {renderOwner(incident)}
-                            </span>
-                          ) : (
-                            <span className="incident-card__owner-badge">
-                              Sem owner
-                            </span>
-                          )}
-                        </span>
-                        <span className="incident-card__meta-item">
-                          <span className="incident-card__label">Criado:</span>
-                          <span className="incident-card__value">
-                            {new Date(incident.createdAt).toLocaleString()}
-                          </span>
-                        </span>
-                      </div>
-                    </button>
+                    <IncidentCard incident={incident} />
                   </li>
                 ))}
               </ul>
@@ -318,7 +319,6 @@ export function HomePage() {
           </div>
         </article>
 
-        {/* INVESTIGATING */}
         <article className="incident-column incident-column--investigating">
           <header className="incident-column__header">
             <div>
@@ -348,62 +348,7 @@ export function HomePage() {
               <ul className="incident-list">
                 {investigatingIncidents.map((incident) => (
                   <li key={incident.id}>
-                    <button
-                      type="button"
-                      className="incident-card"
-                      onClick={() => handleIncidentClick(incident.id)}
-                    >
-                      <div className="incident-card__header-row">
-                        <p className="incident-card__title">
-                          {renderTitle(incident.title)}
-                        </p>
-                      </div>
-
-                      <div className="incident-card__middle">
-                        <div className="incident-card__description-block">
-                          <span className="incident-card__label">
-                            Descrição:
-                          </span>
-                          <span className="incident-card__value incident-card__description">
-                            {renderDescription(incident.description)}
-                          </span>
-                        </div>
-
-                        <div className="incident-card__side">
-                          <span
-                            className={`chip chip--status chip--status-${incident.status.toLowerCase()} incident-card__status-chip`}
-                          >
-                            {incident.status}
-                          </span>
-                          <span
-                            className={`chip chip--severity chip--severity-${incident.severity.toLowerCase()} incident-card__priority-chip`}
-                          >
-                            {getSeverityShortLabel(incident.severity)}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="incident-card__footer">
-                        <span className="incident-card__meta-item">
-                          <span className="incident-card__label">Owner:</span>
-                          {incident.assignee ? (
-                            <span className="incident-card__value">
-                              {renderOwner(incident)}
-                            </span>
-                          ) : (
-                            <span className="incident-card__owner-badge">
-                              Sem owner
-                            </span>
-                          )}
-                        </span>
-                        <span className="incident-card__meta-item">
-                          <span className="incident-card__label">Criado:</span>
-                          <span className="incident-card__value">
-                            {new Date(incident.createdAt).toLocaleString()}
-                          </span>
-                        </span>
-                      </div>
-                    </button>
+                    <IncidentCard incident={incident} />
                   </li>
                 ))}
               </ul>
@@ -411,7 +356,6 @@ export function HomePage() {
           </div>
         </article>
 
-        {/* RESOLVED */}
         <article className="incident-column incident-column--resolved">
           <header className="incident-column__header">
             <div>
@@ -441,62 +385,7 @@ export function HomePage() {
               <ul className="incident-list">
                 {resolvedIncidents.map((incident) => (
                   <li key={incident.id}>
-                    <button
-                      type="button"
-                      className="incident-card"
-                      onClick={() => handleIncidentClick(incident.id)}
-                    >
-                      <div className="incident-card__header-row">
-                        <p className="incident-card__title">
-                          {renderTitle(incident.title)}
-                        </p>
-                      </div>
-
-                      <div className="incident-card__middle">
-                        <div className="incident-card__description-block">
-                          <span className="incident-card__label">
-                            Descrição:
-                          </span>
-                          <span className="incident-card__value incident-card__description">
-                            {renderDescription(incident.description)}
-                          </span>
-                        </div>
-
-                        <div className="incident-card__side">
-                          <span
-                            className={`chip chip--status chip--status-${incident.status.toLowerCase()} incident-card__status-chip`}
-                          >
-                            {incident.status}
-                          </span>
-                          <span
-                            className={`chip chip--severity chip--severity-${incident.severity.toLowerCase()} incident-card__priority-chip`}
-                          >
-                            {getSeverityShortLabel(incident.severity)}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="incident-card__footer">
-                        <span className="incident-card__meta-item">
-                          <span className="incident-card__label">Owner:</span>
-                          {incident.assignee ? (
-                            <span className="incident-card__value">
-                              {renderOwner(incident)}
-                            </span>
-                          ) : (
-                            <span className="incident-card__owner-badge">
-                              Sem owner
-                            </span>
-                          )}
-                        </span>
-                        <span className="incident-card__meta-item">
-                          <span className="incident-card__label">Criado:</span>
-                          <span className="incident-card__value">
-                            {new Date(incident.createdAt).toLocaleString()}
-                          </span>
-                        </span>
-                      </div>
-                    </button>
+                    <IncidentCard incident={incident} />
                   </li>
                 ))}
               </ul>

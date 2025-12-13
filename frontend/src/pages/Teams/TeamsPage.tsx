@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "./TeamsPage.css";
 import { TeamsAPI, type TeamSummary } from "../../services/teams";
 import { useAuth } from "../../context/AuthContext";
+
+const TEAM_STORAGE_KEY = "selectedTeamId";
 
 export function TeamsPage() {
   const { user } = useAuth();
@@ -14,6 +16,16 @@ export function TeamsPage() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
+  // --- A minha equipa ---
+  const [selectedTeamId, setSelectedTeamId] = useState<string>("");
+  const [savingTeam, setSavingTeam] = useState(false);
+  const [saveTeamMessage, setSaveTeamMessage] = useState<string | null>(null);
+
+  const selectedTeam = useMemo(
+    () => teams.find((t) => t.id === selectedTeamId) ?? null,
+    [teams, selectedTeamId]
+  );
+
   useEffect(() => {
     let active = true;
 
@@ -24,13 +36,19 @@ export function TeamsPage() {
       try {
         const data = await TeamsAPI.listAll();
         if (!active) return;
+
         setTeams(data);
+
+        const stored = localStorage.getItem(TEAM_STORAGE_KEY) ?? "";
+        if (stored && data.some((t) => t.id === stored)) {
+          setSelectedTeamId(stored);
+        } else {
+          setSelectedTeamId("");
+        }
       } catch (e: unknown) {
         if (!active) return;
         const msg =
-          e instanceof Error
-            ? e.message
-            : "Não foi possível carregar as equipas.";
+          e instanceof Error ? e.message : "Não foi possível carregar as equipas.";
         setError(msg);
       } finally {
         if (active) setLoading(false);
@@ -38,7 +56,6 @@ export function TeamsPage() {
     }
 
     load();
-
     return () => {
       active = false;
     };
@@ -57,14 +74,39 @@ export function TeamsPage() {
       setNewTeamName("");
     } catch (e: unknown) {
       const msg =
-        e instanceof Error
-          ? e.message
-          : "Não foi possível criar a equipa.";
+        e instanceof Error ? e.message : "Não foi possível criar a equipa.";
       setCreateError(msg);
     } finally {
       setCreating(false);
     }
   }
+
+  async function handleSaveTeam() {
+    if (!user) return;
+
+    setSavingTeam(true);
+    setSaveTeamMessage(null);
+
+    try {
+      if (selectedTeamId) {
+        await TeamsAPI.addMember(selectedTeamId, user.id);
+        localStorage.setItem(TEAM_STORAGE_KEY, selectedTeamId);
+        setSaveTeamMessage("Equipa atualizada com sucesso.");
+      } else {
+        localStorage.removeItem(TEAM_STORAGE_KEY);
+        setSaveTeamMessage("Preferência de equipa limpa.");
+      }
+    } catch (e: unknown) {
+      const msg =
+        e instanceof Error ? e.message : "Não foi possível guardar a equipa.";
+      setSaveTeamMessage(msg);
+    } finally {
+      setSavingTeam(false);
+    }
+  }
+
+  const saveMessageIsError =
+    !!saveTeamMessage && saveTeamMessage.toLowerCase().includes("não foi");
 
   return (
     <section className="teams">
@@ -72,18 +114,22 @@ export function TeamsPage() {
         <p className="teams__eyebrow">Configuração</p>
         <h1 className="teams__title">Equipas</h1>
         <p className="teams__subtitle">
-          Gere as equipas responsáveis por responder a incidentes. Podes criar
-          novas equipas e acompanhar quantos membros e incidentes cada uma tem.
+          Gere as equipas responsáveis por responder a incidentes. Podes criar novas
+          equipas, ver métricas e definir a tua equipa principal.
         </p>
       </header>
 
       <div className="teams__grid">
+        {/* ESQUERDA: lista */}
         <section className="teams-card">
-          <h2 className="teams-card__title">Equipas existentes</h2>
+          <div className="teams-card__head">
+            <h2 className="teams-card__title">Equipas existentes</h2>
+            {!loading && !error && teams.length > 0 && (
+              <p className="teams-card__count">{teams.length}</p>
+            )}
+          </div>
 
-          {loading && (
-            <p className="teams__status">A carregar lista de equipas…</p>
-          )}
+          {loading && <p className="teams__status">A carregar lista de equipas…</p>}
 
           {error && (
             <p className="teams__status teams__status--error" role="alert">
@@ -93,37 +139,42 @@ export function TeamsPage() {
 
           {!loading && !error && teams.length === 0 && (
             <p className="teams__status">
-              Ainda não existem equipas registadas. Cria a primeira equipa ao
-              lado.
+              Ainda não existem equipas registadas. Cria a primeira equipa ao lado.
             </p>
           )}
 
           {!loading && !error && teams.length > 0 && (
-            <ul className="teams-list">
-              {teams.map((team) => (
-                <li key={team.id} className="teams-list__item">
-                  <div className="team-badge">
-                    <p className="team-badge__name">{team.name}</p>
-                    <p className="team-badge__meta">
-                      {team.membersCount} membro
-                      {team.membersCount === 1 ? "" : "s"} ·{" "}
-                      {team.incidentsCount} incidente
-                      {team.incidentsCount === 1 ? "" : "s"}
-                    </p>
-                  </div>
-                </li>
-              ))}
+            <ul className="teams-list teams-list--scroll">
+              {teams.map((team) => {
+                const isSelected = team.id === selectedTeamId;
+
+                return (
+                  <li key={team.id} className="teams-list__item">
+                    <div className={`team-badge ${isSelected ? "team-badge--selected" : ""}`}>
+                      <div className="team-badge__top">
+                        <p className="team-badge__name">{team.name}</p>
+                        {isSelected && <span className="team-badge__pill">Atual</span>}
+                      </div>
+
+                      <p className="team-badge__meta">
+                        {team.membersCount} membro{team.membersCount === 1 ? "" : "s"} ·{" "}
+                        {team.incidentsCount} incidente{team.incidentsCount === 1 ? "" : "s"}
+                      </p>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </section>
 
+        {/* DIREITA: criar + minha equipa */}
         <section className="teams-card">
           <h2 className="teams-card__title">Criar nova equipa</h2>
           <p className="teams-card__text">
             Utiliza este formulário para registar equipas como{" "}
             <strong>NOC 24/7</strong>, <strong>SRE Platform</strong> ou{" "}
-            <strong>Service Desk</strong>. Podes associar-te a uma equipa na
-            página de Conta.
+            <strong>Service Desk</strong>.
           </p>
 
           <form className="teams-form" onSubmit={handleCreateTeam}>
@@ -153,12 +204,65 @@ export function TeamsPage() {
             </button>
           </form>
 
-          {user && (
+          <div className="teams-divider" />
+
+          <h2 className="teams-card__title">A minha equipa</h2>
+
+          {!user && (
             <p className="teams-card__hint">
-              Estás autenticado como <strong>{user.email}</strong>. Depois de
-              criares equipas, podes associar-te a uma delas em{" "}
-              <strong>Conta &gt; Equipa de trabalho</strong>.
+              Inicia sessão para definires a tua equipa principal.
             </p>
+          )}
+
+          {user && (
+            <>
+              <label className="teams-field">
+                <span className="teams-field__label">Seleciona a tua equipa principal</span>
+                <select
+                  className="teams-field__select"
+                  value={selectedTeamId}
+                  onChange={(e) => setSelectedTeamId(e.target.value)}
+                  disabled={loading || !!error}
+                >
+                  <option value="">— Nenhuma equipa —</option>
+                  {teams.map((team) => (
+                    <option key={team.id} value={team.id}>
+                      {team.name} ({team.membersCount} membro
+                      {team.membersCount === 1 ? "" : "s"})
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {selectedTeam && (
+                <p className="teams-card__hint">
+                  Equipa atual: <strong>{selectedTeam.name}</strong>
+                </p>
+              )}
+
+              {saveTeamMessage && (
+                <p
+                  className={`teams__status ${saveMessageIsError ? "teams__status--error" : ""}`}
+                  role="status"
+                >
+                  {saveTeamMessage}
+                </p>
+              )}
+
+              <button
+                type="button"
+                className="teams-btn teams-btn--secondary"
+                onClick={handleSaveTeam}
+                disabled={savingTeam}
+              >
+                {savingTeam ? "A guardar…" : "Guardar equipa"}
+              </button>
+
+              <p className="teams-card__hint">
+                Estás autenticado como <strong>{user.email}</strong>. Esta escolha fica
+                guardada e é usada como contexto principal.
+              </p>
+            </>
           )}
         </section>
       </div>

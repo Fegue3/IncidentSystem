@@ -1,6 +1,5 @@
-// frontend/src/pages/Incidents/IncidentCreatePage.tsx
 import type { FormEvent } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "./IncidentCreatePage.css";
 import {
@@ -10,6 +9,7 @@ import {
 } from "../../services/incidents";
 import { UsersAPI, type Me } from "../../services/users";
 import { useAuth } from "../../context/AuthContext";
+import { ServicesAPI, type ServiceLite } from "../../services/services";
 
 const TITLE_MAX_LENGTH = 120;
 const DESCRIPTION_MAX_LENGTH = 2000;
@@ -26,23 +26,28 @@ type OwnerMode = "none" | "self";
 
 export function IncidentCreatePage() {
   const navigate = useNavigate();
-  const { user } = useAuth(); // utilizador autenticado
+  const { user } = useAuth();
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
 
-  // Severidade (SEV1–SEV4)
   const [severity, setSeverity] = useState<SeverityCode>("SEV3");
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [me, setMe] = useState<MeWithTeam | null>(null);
-
-  // modo de owner inicial: nenhum (default) ou o próprio
   const [ownerMode, setOwnerMode] = useState<OwnerMode>("none");
 
-  // carregar info do utilizador (para saber a equipa), sem mostrar nada no UI
+  const [services, setServices] = useState<ServiceLite[]>([]);
+  const [servicesLoading, setServicesLoading] = useState(true);
+  const [servicesError, setServicesError] = useState<string | null>(null);
+  const [primaryServiceId, setPrimaryServiceId] = useState<string>("");
+
+  const servicesSorted = useMemo(() => {
+    return [...services].sort((a, b) => a.name.localeCompare(b.name));
+  }, [services]);
+
   useEffect(() => {
     let active = true;
 
@@ -54,6 +59,40 @@ export function IncidentCreatePage() {
       .catch((e) => {
         console.error("Falha ao carregar o utilizador atual", e);
       });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadServices() {
+      setServicesLoading(true);
+      setServicesError(null);
+
+      try {
+        const data = await ServicesAPI.list({ isActive: true });
+        if (!active) return;
+
+        setServices(data);
+
+        if (data.length === 1) {
+          setPrimaryServiceId(data[0].id);
+        }
+      } catch (err: unknown) {
+        const msg =
+          err instanceof Error
+            ? err.message
+            : "Não foi possível carregar a lista de serviços.";
+        if (active) setServicesError(msg);
+      } finally {
+        if (active) setServicesLoading(false);
+      }
+    }
+
+    loadServices();
 
     return () => {
       active = false;
@@ -72,9 +111,7 @@ export function IncidentCreatePage() {
     }
 
     if (cleanTitle.length > TITLE_MAX_LENGTH) {
-      setError(
-        `O título não pode ter mais de ${TITLE_MAX_LENGTH} caracteres.`
-      );
+      setError(`O título não pode ter mais de ${TITLE_MAX_LENGTH} caracteres.`);
       return;
     }
 
@@ -85,17 +122,20 @@ export function IncidentCreatePage() {
       return;
     }
 
+    if (!primaryServiceId) {
+      setError("Seleciona um serviço para associar ao incidente.");
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
 
     try {
-      // 1º tenta usar a equipa do utilizador, 2º a equipa escolhida na app (localStorage)
       const selectedTeamFromStorage =
         localStorage.getItem(TEAM_STORAGE_KEY) ?? undefined;
 
       const teamId = me?.team?.id ?? selectedTeamFromStorage ?? undefined;
 
-      // calcula owner inicial
       let assigneeId: string | undefined;
       if (ownerMode === "self" && user) {
         assigneeId = user.id;
@@ -104,17 +144,16 @@ export function IncidentCreatePage() {
       const incident = await IncidentsAPI.create({
         title: cleanTitle,
         description: cleanDescription,
-        severity,     // <<< já vai como SEV1–SEV4
+        severity,
         teamId,
-        assigneeId,   // opcional
+        assigneeId,
+        primaryServiceId,
       });
 
       navigate(`/incidents/${incident.id}`, { replace: true });
     } catch (err: unknown) {
       const msg =
-        err instanceof Error
-          ? err.message
-          : "Não foi possível criar o incidente.";
+        err instanceof Error ? err.message : "Não foi possível criar o incidente.";
       setError(msg);
     } finally {
       setSubmitting(false);
@@ -165,13 +204,52 @@ export function IncidentCreatePage() {
           </div>
 
           <aside className="incident-create__side">
-            {/* Severidade */}
+            <label className="form-field">
+              <span className="form-field__label">Serviço</span>
+              <select
+                className="form-field__select"
+                value={primaryServiceId}
+                onChange={(e) => setPrimaryServiceId(e.target.value)}
+                disabled={servicesLoading || submitting || services.length === 0}
+              >
+                {servicesLoading && <option value="">A carregar serviços…</option>}
+                {!servicesLoading && servicesSorted.length === 0 && (
+                  <option value="">Sem serviços ativos</option>
+                )}
+                {!servicesLoading && servicesSorted.length > 0 && (
+                  <>
+                    <option value="">Seleciona um serviço…</option>
+                    {servicesSorted.map((s) => {
+                      const owner =
+                        s.ownerTeam?.name ? ` · ${s.ownerTeam.name}` : "";
+                      return (
+                        <option key={s.id} value={s.id}>
+                          {s.name} ({s.key}){owner}
+                        </option>
+                      );
+                    })}
+                  </>
+                )}
+              </select>
+
+              <p className="form-field__hint incident-create__service-note">
+                O serviço fica associado ao incidente e não pode ser trocado depois.
+              </p>
+
+              {servicesError && (
+                <p className="incident-create__error" role="alert">
+                  {servicesError}
+                </p>
+              )}
+            </label>
+
             <label className="form-field">
               <span className="form-field__label">Severidade (SEV)</span>
               <select
                 className="form-field__select"
                 value={severity}
                 onChange={(e) => setSeverity(e.target.value as SeverityCode)}
+                disabled={submitting}
               >
                 {(["SEV1", "SEV2", "SEV3", "SEV4"] as SeverityCode[]).map(
                   (code) => (
@@ -183,14 +261,12 @@ export function IncidentCreatePage() {
               </select>
             </label>
 
-            {/* Responsável inicial */}
             <div className="incident-create__owner">
               <span className="form-field__label">
                 Responsável inicial (opcional)
               </span>
               <p className="form-field__hint">
-                Podes deixar o incidente sem owner ou assumir já a
-                responsabilidade.
+                Podes deixar o incidente sem owner ou assumir já a responsabilidade.
               </p>
 
               <div className="incident-create__owner-options">
@@ -201,6 +277,7 @@ export function IncidentCreatePage() {
                     value="none"
                     checked={ownerMode === "none"}
                     onChange={() => setOwnerMode("none")}
+                    disabled={submitting}
                   />
                   <span>Sem owner</span>
                 </label>
@@ -213,6 +290,7 @@ export function IncidentCreatePage() {
                       value="self"
                       checked={ownerMode === "self"}
                       onChange={() => setOwnerMode("self")}
+                      disabled={submitting}
                     />
                     <span>Atribuir a mim</span>
                   </label>
@@ -240,7 +318,7 @@ export function IncidentCreatePage() {
           <button
             type="submit"
             className="incident-btn incident-btn--primary"
-            disabled={submitting}
+            disabled={submitting || servicesLoading}
           >
             {submitting ? "A criar incidente…" : "Criar incidente"}
           </button>

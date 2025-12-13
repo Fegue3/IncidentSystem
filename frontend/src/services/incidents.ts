@@ -26,24 +26,38 @@ export type TeamLite = {
   name: string;
 };
 
+export type ServiceLite = {
+  id: string;
+  key: string;
+  name: string;
+  description?: string | null;
+  isActive: boolean;
+  ownerTeam?: { id: string; name: string } | null;
+};
+
 export type IncidentSummary = {
   id: string;
   title: string;
   description: string;
   status: IncidentStatus;
 
-  /**
-   * Campo de severidade (SEV1–SEV4).
-   */
   severity: SeverityCode;
 
   createdAt: string;
+
   reporter: UserLite;
   assignee?: UserLite | null;
   team?: TeamLite | null;
+
+  primaryService?: ServiceLite | null;
 };
 
-export type TimelineEventType = "STATUS_CHANGE" | "COMMENT" | "FIELD_UPDATE";
+export type TimelineEventType =
+  | "STATUS_CHANGE"
+  | "COMMENT"
+  | "FIELD_UPDATE"
+  | "ASSIGNMENT"
+  | (string & {});
 
 export type TimelineEvent = {
   id: string;
@@ -53,6 +67,40 @@ export type TimelineEvent = {
   message?: string | null;
   fromStatus?: IncidentStatus | null;
   toStatus?: IncidentStatus | null;
+
+  /**
+   * ✅ Extras opcionais (backend pode mandar isto em updates)
+   * Não rebenta nada se não vier.
+   */
+  changes?: unknown;
+  diff?: unknown;
+  payload?: unknown;
+  data?: unknown;
+  meta?: unknown;
+  details?: unknown;
+
+  assignee?: UserLite | null;
+  owner?: UserLite | null;
+  toAssignee?: UserLite | null;
+  toOwner?: UserLite | null;
+
+  toAssigneeId?: string | null;
+  newAssigneeId?: string | null;
+  assigneeId?: string | null;
+  toOwnerId?: string | null;
+  ownerId?: string | null;
+  nextAssigneeId?: string | null;
+  assignedToId?: string | null;
+
+  toAssigneeName?: string | null;
+  newAssigneeName?: string | null;
+  toOwnerName?: string | null;
+  newOwnerName?: string | null;
+
+  toAssigneeEmail?: string | null;
+  newAssigneeEmail?: string | null;
+  toOwnerEmail?: string | null;
+  newOwnerEmail?: string | null;
 };
 
 export type IncidentComment = {
@@ -69,30 +117,24 @@ export type IncidentDetails = IncidentSummary & {
 
 export type ListIncidentsParams = {
   teamId?: string;
-  // se mais tarde quiseres filtrar por severity/status/etc, acrescentas aqui
 };
 
 export type CreateIncidentInput = {
   title: string;
   description: string;
-
-  /**
-   * Severidade (SEV1–SEV4).
-   */
   severity: SeverityCode;
-
   teamId?: string;
-
-  /** Owner inicial opcional (assignee) */
   assigneeId?: string;
+  primaryServiceId: string;
 };
 
 export type UpdateFieldsInput = {
-  /** Atualizar severidade (SEV) */
   severity?: SeverityCode;
 
-  /** Atualizar responsável (owner) */
-  assigneeId?: string;
+  /**
+   * ✅ permitir null para "Sem owner"
+   */
+  assigneeId?: string | null;
 };
 
 export type ChangeStatusInput = {
@@ -106,7 +148,6 @@ export type AddCommentInput = {
 
 /* ---------- Helpers de Severidade (SEV) ---------- */
 
-// ordem lógica: SEV1 mais crítico
 const SEVERITY_ORDER: Record<SeverityCode, number> = {
   SEV1: 1,
   SEV2: 2,
@@ -114,7 +155,6 @@ const SEVERITY_ORDER: Record<SeverityCode, number> = {
   SEV4: 4,
 };
 
-// label longo para selects
 const SEVERITY_LABEL: Record<SeverityCode, string> = {
   SEV1: "SEV1 — Crítico",
   SEV2: "SEV2 — Alto",
@@ -122,7 +162,6 @@ const SEVERITY_LABEL: Record<SeverityCode, string> = {
   SEV4: "SEV4 — Baixo",
 };
 
-// label curto para chips / badges
 const SEVERITY_SHORT_LABEL: Record<SeverityCode, string> = {
   SEV1: "SEV1",
   SEV2: "SEV2",
@@ -155,19 +194,12 @@ function buildQuery(params: ListIncidentsParams): string {
 
 export const IncidentsAPI = {
   async list(params: ListIncidentsParams = {}): Promise<IncidentSummary[]> {
-    const result = await api(`/incidents${buildQuery(params)}`, {
-      auth: true,
-    });
-
-    // Backend já devolve `severity`, por isso é só cast.
+    const result = await api(`/incidents${buildQuery(params)}`, { auth: true });
     return result as IncidentSummary[];
   },
 
   async get(id: string): Promise<IncidentDetails> {
-    const result = await api(`/incidents/${id}`, {
-      auth: true,
-    });
-
+    const result = await api(`/incidents/${id}`, { auth: true });
     return result as IncidentDetails;
   },
 
@@ -175,60 +207,40 @@ export const IncidentsAPI = {
     const result = await api(`/incidents`, {
       method: "POST",
       auth: true,
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     });
 
     return result as IncidentDetails;
   },
 
-  async changeStatus(
-    id: string,
-    input: ChangeStatusInput
-  ): Promise<IncidentDetails> {
+  async changeStatus(id: string, input: ChangeStatusInput): Promise<IncidentDetails> {
     const result = await api(`/incidents/${id}/status`, {
       method: "PATCH",
       auth: true,
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     });
 
     return result as IncidentDetails;
   },
 
-  /**
-   * Atualiza campos genéricos (neste momento: severidade e/ou owner).
-   */
-  async updateFields(
-    id: string,
-    input: UpdateFieldsInput
-  ): Promise<IncidentDetails> {
+  async updateFields(id: string, input: UpdateFieldsInput): Promise<IncidentDetails> {
     const result = await api(`/incidents/${id}`, {
       method: "PATCH",
       auth: true,
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     });
 
     return result as IncidentDetails;
   },
 
-  async addComment(
-    id: string,
-    input: AddCommentInput
-  ): Promise<IncidentComment> {
+  async addComment(id: string, input: AddCommentInput): Promise<IncidentComment> {
     const result = await api(`/incidents/${id}/comments`, {
       method: "POST",
       auth: true,
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     });
 
@@ -236,9 +248,6 @@ export const IncidentsAPI = {
   },
 
   async delete(id: string): Promise<void> {
-    await api(`/incidents/${id}`, {
-      method: "DELETE",
-      auth: true,
-    });
+    await api(`/incidents/${id}`, { method: "DELETE", auth: true });
   },
 };

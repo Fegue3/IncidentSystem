@@ -60,6 +60,10 @@
   gap: 8px;
 }
 
+.incident-create__service-note {
+  margin-top: 6px;
+}
+
 /* “pills” dos radios */
 .radio-pill {
   display: inline-flex;
@@ -91,12 +95,10 @@
   font-weight: 600;
 }
 
-
 .radio-pill:hover {
   background: rgba(27, 42, 65, 0.04);
   border-color: rgba(27, 42, 65, 0.35);
 }
-
 
 .incident-create__side {
   display: flex;

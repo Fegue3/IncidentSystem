@@ -19,7 +19,7 @@ import { ListIncidentsDto } from './dto/list-incidents.dto';
 
 @Injectable()
 export class IncidentsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   private validateStatusTransition(current: IncidentStatus, next: IncidentStatus) {
     const allowed: Record<IncidentStatus, IncidentStatus[]> = {
@@ -115,15 +115,15 @@ export class IncidentsService {
           : undefined,
       categories: dto.categoryIds
         ? {
-            create: dto.categoryIds.map((categoryId) => ({
-              category: { connect: { id: categoryId } },
-            })),
-          }
+          create: dto.categoryIds.map((categoryId) => ({
+            category: { connect: { id: categoryId } },
+          })),
+        }
         : undefined,
       tags: dto.tagIds
         ? {
-            connect: dto.tagIds.map((tagId) => ({ id: tagId })),
-          }
+          connect: dto.tagIds.map((tagId) => ({ id: tagId })),
+        }
         : undefined,
     };
 
@@ -243,11 +243,26 @@ export class IncidentsService {
   async update(id: string, dto: UpdateIncidentDto, userId: string) {
     const incident = await this.prisma.incident.findUnique({
       where: { id },
-      select: { id: true, assigneeId: true, teamId: true, primaryServiceId: true },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        severity: true,
+        assigneeId: true,
+        teamId: true,
+        primaryServiceId: true,
+      },
     });
     if (!incident) throw new NotFoundException('Incident not found');
 
     const data: Prisma.IncidentUpdateInput = {};
+
+    const titleChanged = dto.title !== undefined && dto.title !== incident.title;
+    const descriptionChanged = dto.description !== undefined && dto.description !== incident.description;
+    const teamChanged = dto.teamId !== undefined && (dto.teamId || null) !== (incident.teamId ?? null);
+
+    const severityChanged = dto.severity !== undefined && dto.severity !== incident.severity;
+
     let assigneeChanged = false;
     let serviceChanged = false;
 
@@ -255,19 +270,22 @@ export class IncidentsService {
     if (dto.description !== undefined) data.description = dto.description;
     if (dto.severity !== undefined) data.severity = dto.severity;
 
+    // assignee change
     if (dto.assigneeId !== undefined) {
       const newAssigneeId = dto.assigneeId || null;
-      if (newAssigneeId !== incident.assigneeId) assigneeChanged = true;
+      assigneeChanged = newAssigneeId !== (incident.assigneeId ?? null);
 
       data.assignee = newAssigneeId
         ? { connect: { id: newAssigneeId } }
         : { disconnect: true };
     }
 
+    // team change
     if (dto.teamId !== undefined) {
       data.team = dto.teamId ? { connect: { id: dto.teamId } } : { disconnect: true };
     }
 
+    // service change
     const resolvedServiceId = await this.resolvePrimaryServiceId({
       primaryServiceId: dto.primaryServiceId,
       primaryServiceKey: dto.primaryServiceKey,
@@ -277,7 +295,7 @@ export class IncidentsService {
 
     if (resolvedServiceId !== undefined) {
       const current = incident.primaryServiceId ?? null;
-      if (resolvedServiceId !== current) serviceChanged = true;
+      serviceChanged = resolvedServiceId !== current;
 
       if (resolvedServiceId === null) {
         data.primaryService = { disconnect: true };
@@ -291,6 +309,7 @@ export class IncidentsService {
       }
     }
 
+    // categories/tags (mantive igual ao teu)
     if (dto.categoryIds) {
       await this.prisma.categoryOnIncident.deleteMany({ where: { incidentId: id } });
       data.categories = {
@@ -316,30 +335,65 @@ export class IncidentsService {
         },
       });
 
-      const message = serviceChanged
-        ? updated.primaryServiceId
-          ? `Serviço atualizado: ${serviceNameForMessage ?? updated.primaryService?.name ?? 'Service'}`
-          : 'Serviço removido'
-        : assigneeChanged
-          ? dto.assigneeId
-            ? 'Responsável atualizado'
-            : 'Responsável removido'
-          : 'Campos atualizados';
+      // ✅ criar eventos separados (1 por mudança relevante)
+      const events: Prisma.IncidentTimelineEventCreateManyInput[] = [];
 
-      await tx.incidentTimelineEvent.create({
-        data: {
+      if (serviceChanged) {
+        events.push({
           incidentId: id,
           authorId: userId,
-          type: assigneeChanged
-            ? TimelineEventType.ASSIGNMENT
-            : TimelineEventType.FIELD_UPDATE,
-          message,
-        },
-      });
+          type: TimelineEventType.FIELD_UPDATE,
+          message: updated.primaryServiceId
+            ? `Serviço atualizado: ${serviceNameForMessage ?? updated.primaryService?.name ?? 'Service'}`
+            : 'Serviço removido',
+        });
+      }
+
+      if (assigneeChanged) {
+        const label =
+          updated.assignee?.name?.trim()
+            ? updated.assignee.name
+            : (updated.assignee?.email ?? 'unknown');
+
+        events.push({
+          incidentId: id,
+          authorId: userId,
+          type: TimelineEventType.ASSIGNMENT,
+          message: updated.assigneeId
+            ? `Responsável atualizado: ${label}`
+            : 'Responsável removido',
+        });
+      }
+      if (severityChanged) {
+        events.push({
+          incidentId: id,
+          authorId: userId,
+          type: TimelineEventType.FIELD_UPDATE,
+          message: `Severidade atualizada: ${incident.severity} → ${updated.severity}`,
+        });
+      }
+
+      // fallback se mudou “algo” mas não foi service/assignee/severity
+      const somethingElseChanged =
+        titleChanged || descriptionChanged || teamChanged || !!dto.categoryIds || !!dto.tagIds;
+
+      if (events.length === 0 && somethingElseChanged) {
+        events.push({
+          incidentId: id,
+          authorId: userId,
+          type: TimelineEventType.FIELD_UPDATE,
+          message: 'Campos atualizados',
+        });
+      }
+
+      if (events.length > 0) {
+        await tx.incidentTimelineEvent.createMany({ data: events });
+      }
 
       return updated;
     });
   }
+
 
   async changeStatus(id: string, dto: ChangeStatusDto, userId: string) {
     const incident = await this.prisma.incident.findUnique({ where: { id } });
