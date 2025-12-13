@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { IncidentsService } from '../../src/incidents/incidents.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
+import { NotificationsService } from '../../src/notifications/notifications.service';
 import { Severity } from '@prisma/client';
 
 describe('IncidentsService - primaryService linking (unit)', () => {
@@ -45,6 +46,13 @@ describe('IncidentsService - primaryService linking (unit)', () => {
       providers: [
         IncidentsService,
         { provide: PrismaService, useValue: prisma },
+        {
+          provide: NotificationsService,
+          useValue: {
+            sendDiscord: jest.fn().mockResolvedValue({ ok: true }),
+            triggerPagerDuty: jest.fn().mockResolvedValue({ ok: true }),
+          },
+        },
       ],
     }).compile();
 
