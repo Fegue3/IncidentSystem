@@ -460,6 +460,14 @@
   background: #94a3b8;
 }
 
+.timeline__dot--success {
+  background: #22c55e;
+}
+
+.timeline__dot--error {
+  background:#dc2626;
+}
+
 .timeline__content {
   font-size: 13px;
 }
