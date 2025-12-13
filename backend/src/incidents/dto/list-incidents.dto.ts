@@ -19,6 +19,16 @@ export class ListIncidentsDto {
   @IsOptional()
   teamId?: string;
 
+  // filtrar por serviço
+  @IsString()
+  @IsOptional()
+  primaryServiceId?: string;
+
+  // filtrar por key sem precisares de id
+  @IsString()
+  @IsOptional()
+  primaryServiceKey?: string;
+
   @IsString()
   @IsOptional()
   search?: string; // procura em title/description

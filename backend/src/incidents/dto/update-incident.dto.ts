@@ -27,6 +27,20 @@ export class UpdateIncidentDto {
   @IsOptional()
   teamId?: string;
 
+  // mudar serviço por id
+  @IsString()
+  @IsOptional()
+  primaryServiceId?: string;
+
+  // mudar serviço por key
+  @IsString()
+  @IsOptional()
+  primaryServiceKey?: string;
+
+  // permitir remover serviço explicitamente
+  // envia { primaryServiceId: "" } ou { primaryServiceKey: "" } para remover
+  // (o service trata disso)
+
   @IsArray()
   @IsString({ each: true })
   @IsOptional()

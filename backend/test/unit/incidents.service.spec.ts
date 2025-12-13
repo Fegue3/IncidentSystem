@@ -1,4 +1,3 @@
-// test/incidents.service.spec.ts
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   IncidentStatus,
@@ -19,11 +18,9 @@ describe('IncidentsService', () => {
   let prisma: any;
 
   beforeEach(async () => {
-    const prismaMock: any = {
+    const tx: any = {
       incident: {
         create: jest.fn(),
-        findUnique: jest.fn(),
-        findMany: jest.fn(),
         update: jest.fn(),
       },
       incidentTimelineEvent: {
@@ -42,7 +39,44 @@ describe('IncidentsService', () => {
       categoryOnIncident: {
         deleteMany: jest.fn(),
       },
-      $transaction: jest.fn(async (ops: any[]) => Promise.all(ops)),
+      service: {
+        findUnique: jest.fn(),
+      },
+    };
+
+    const prismaMock: any = {
+      incident: {
+        create: jest.fn(),
+        findUnique: jest.fn(),
+        findMany: jest.fn(),
+        update: jest.fn(),
+      },
+      service: {
+        findUnique: jest.fn(),
+      },
+      incidentTimelineEvent: {
+        create: jest.fn(),
+        findMany: jest.fn(),
+        deleteMany: jest.fn(),
+      },
+      incidentComment: {
+        create: jest.fn(),
+        findMany: jest.fn(),
+        deleteMany: jest.fn(),
+      },
+      notificationSubscription: {
+        create: jest.fn(),
+        findFirst: jest.fn(),
+        deleteMany: jest.fn(),
+      },
+      categoryOnIncident: {
+        deleteMany: jest.fn(),
+      },
+      $transaction: jest.fn(async (arg: any) => {
+        if (typeof arg === 'function') return arg(tx);
+        return Promise.all(arg);
+      }),
+      __tx: tx,
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -63,8 +97,6 @@ describe('IncidentsService', () => {
     jest.resetAllMocks();
   });
 
-  // ---------- CREATE ----------
-
   it('deve criar incidente com severidade default SEV3 e status NEW', async () => {
     const dto: CreateIncidentDto = {
       title: 'DB down',
@@ -82,13 +114,18 @@ describe('IncidentsService', () => {
       description: dto.description,
       status: IncidentStatus.NEW,
       severity: Severity.SEV3,
+      reporterId: 'user-1',
+      primaryServiceId: null,
+      primaryService: null,
     };
 
-    prisma.incident.create.mockResolvedValue(createdIncident as any);
+    prisma.__tx.incident.create.mockResolvedValue(createdIncident as any);
+    prisma.__tx.incidentTimelineEvent.create.mockResolvedValue({} as any);
+    prisma.__tx.notificationSubscription.create.mockResolvedValue({} as any);
 
     await service.create(dto, 'user-1');
 
-    expect(prisma.incident.create).toHaveBeenCalledWith({
+    expect(prisma.__tx.incident.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         title: dto.title,
         description: dto.description,
@@ -96,9 +133,15 @@ describe('IncidentsService', () => {
         status: IncidentStatus.NEW,
         reporter: { connect: { id: 'user-1' } },
       }),
+      include: {
+        reporter: true,
+        assignee: true,
+        team: true,
+        primaryService: { include: { ownerTeam: true } },
+      },
     });
 
-    expect(prisma.incidentTimelineEvent.create).toHaveBeenCalledWith({
+    expect(prisma.__tx.incidentTimelineEvent.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         incidentId: 'inc-1',
         authorId: 'user-1',
@@ -107,12 +150,11 @@ describe('IncidentsService', () => {
         toStatus: IncidentStatus.NEW,
       }),
     });
-    expect(prisma.notificationSubscription.create).toHaveBeenCalledWith({
+
+    expect(prisma.__tx.notificationSubscription.create).toHaveBeenCalledWith({
       data: { userId: 'user-1', incidentId: 'inc-1' },
     });
   });
-
-  // ---------- FIND ALL / ONE ----------
 
   it('deve listar incidentes com filtros (findAll)', async () => {
     const query: ListIncidentsDto = {
@@ -149,6 +191,7 @@ describe('IncidentsService', () => {
         reporter: true,
         assignee: true,
         team: true,
+        primaryService: { include: { ownerTeam: true } },
       },
     });
   });
@@ -173,14 +216,11 @@ describe('IncidentsService', () => {
     );
   });
 
-  // ---------- UPDATE ----------
-
   it('deve atualizar incidente e registar evento de FIELD_UPDATE', async () => {
     const dto: UpdateIncidentDto = {
       title: 'Novo título',
       description: 'Nova descrição',
       severity: Severity.SEV2,
-      // sem assigneeId aqui -> queremos FIELD_UPDATE, não ASSIGNMENT
       teamId: 'team-1',
       categoryIds: ['cat-1', 'cat-2'],
       tagIds: ['tag-1'],
@@ -188,12 +228,21 @@ describe('IncidentsService', () => {
 
     prisma.incident.findUnique.mockResolvedValue({
       id: 'inc-1',
-      status: IncidentStatus.NEW,
+      assigneeId: 'user-9',
+      teamId: null,
+      primaryServiceId: null,
     } as any);
-    prisma.incident.update.mockResolvedValue({
+
+    prisma.categoryOnIncident.deleteMany.mockResolvedValue({ count: 2 } as any);
+
+    prisma.__tx.incident.update.mockResolvedValue({
       id: 'inc-1',
       ...dto,
+      primaryServiceId: null,
+      primaryService: null,
     } as any);
+
+    prisma.__tx.incidentTimelineEvent.create.mockResolvedValue({} as any);
 
     const result = await service.update('inc-1', dto, 'user-1');
 
@@ -201,16 +250,22 @@ describe('IncidentsService', () => {
       where: { incidentId: 'inc-1' },
     });
 
-    expect(prisma.incident.update).toHaveBeenCalledWith({
+    expect(prisma.__tx.incident.update).toHaveBeenCalledWith({
       where: { id: 'inc-1' },
       data: expect.objectContaining({
         title: 'Novo título',
         description: 'Nova descrição',
         severity: Severity.SEV2,
       }),
+      include: {
+        reporter: true,
+        assignee: true,
+        team: true,
+        primaryService: { include: { ownerTeam: true } },
+      },
     });
 
-    expect(prisma.incidentTimelineEvent.create).toHaveBeenCalledWith({
+    expect(prisma.__tx.incidentTimelineEvent.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         incidentId: 'inc-1',
         authorId: 'user-1',
@@ -228,23 +283,27 @@ describe('IncidentsService', () => {
 
     prisma.incident.findUnique.mockResolvedValue({
       id: 'inc-1',
-      status: IncidentStatus.NEW,
       assigneeId: 'user-1',
+      teamId: null,
+      primaryServiceId: null,
     } as any);
 
-    prisma.incident.update.mockResolvedValue({
+    prisma.__tx.incident.update.mockResolvedValue({
       id: 'inc-1',
       assigneeId: 'user-2',
+      primaryServiceId: null,
+      primaryService: null,
     } as any);
+
+    prisma.__tx.incidentTimelineEvent.create.mockResolvedValue({} as any);
 
     await service.update('inc-1', dto, 'user-1');
 
-    expect(prisma.incidentTimelineEvent.create).toHaveBeenCalledWith({
+    expect(prisma.__tx.incidentTimelineEvent.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         incidentId: 'inc-1',
         authorId: 'user-1',
         type: TimelineEventType.ASSIGNMENT,
-        message: 'Responsável atualizado',
       }),
     });
   });
@@ -256,8 +315,6 @@ describe('IncidentsService', () => {
       service.update('inc-x', {} as UpdateIncidentDto, 'user-1'),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
-
-  // ---------- CHANGE STATUS ----------
 
   it('deve mudar status NEW -> TRIAGED e preencher triagedAt', async () => {
     const dto: ChangeStatusDto = {
@@ -276,6 +333,8 @@ describe('IncidentsService', () => {
       status: dto.newStatus,
       triagedAt: data.triagedAt,
     })) as any;
+
+    prisma.incidentTimelineEvent.create.mockResolvedValue({} as any);
 
     const result = await service.changeStatus('inc-1', dto, 'user-1');
 
@@ -313,8 +372,6 @@ describe('IncidentsService', () => {
       service.changeStatus('inc-1', dto, 'user-1'),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
-
-  // ---------- COMMENTS ----------
 
   it('deve adicionar comentário e criar evento de COMMENT', async () => {
     prisma.incident.findUnique.mockResolvedValue({
@@ -371,10 +428,8 @@ describe('IncidentsService', () => {
       orderBy: { createdAt: 'asc' },
       include: { author: true },
     });
-    expect(result).toEqual([]);
+    expect(result).toEqual([] as any);
   });
-
-  // ---------- TIMELINE ----------
 
   it('deve listar timeline', async () => {
     prisma.incidentTimelineEvent.findMany.mockResolvedValue([] as any);
@@ -386,10 +441,8 @@ describe('IncidentsService', () => {
       orderBy: { createdAt: 'asc' },
       include: { author: true },
     });
-    expect(result).toEqual([]);
+    expect(result).toEqual([] as any);
   });
-
-  // ---------- SUBSCRIPTIONS ----------
 
   it('deve criar subscription se ainda não existir', async () => {
     prisma.notificationSubscription.findFirst.mockResolvedValue(null);
