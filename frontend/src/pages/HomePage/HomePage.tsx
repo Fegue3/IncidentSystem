@@ -9,6 +9,7 @@ import {
   getSeverityShortLabel,
   getSeverityOrder,
 } from "../../services/incidents";
+import { ServicesAPI, type ServiceLite } from "../../services/services";
 
 const TEAM_STORAGE_KEY = "selectedTeamId";
 
@@ -20,6 +21,16 @@ export function HomePage() {
   const [incidents, setIncidents] = useState<IncidentSummary[]>([]);
   const [loadingIncidents, setLoadingIncidents] = useState(true);
   const [incidentsError, setIncidentsError] = useState<string | null>(null);
+
+  // Filtros locais
+  const [filterSeverity, setFilterSeverity] = useState<string>("");
+  const [filterStatus, setFilterStatus] = useState<string>("");
+  const [filterServiceKey, setFilterServiceKey] = useState<string>("");
+  const [searchText, setSearchText] = useState<string>("");
+
+  const [services, setServices] = useState<ServiceLite[]>([]);
+  const [loadingServices, setLoadingServices] = useState<boolean>(false);
+  const [servicesError, setServicesError] = useState<string | null>(null);
 
   const navigate = useNavigate();
 
@@ -47,6 +58,28 @@ export function HomePage() {
     };
   }, []);
 
+  // carregar lista de serviços para dropdown
+  useEffect(() => {
+    let active = true;
+    async function loadServices() {
+      try {
+        setLoadingServices(true);
+        setServicesError(null);
+        const list = await ServicesAPI.list({ isActive: true });
+        if (active) setServices(list);
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : "Erro a carregar serviços";
+        if (active) setServicesError(msg);
+      } finally {
+        if (active) setLoadingServices(false);
+      }
+    }
+    loadServices();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   useEffect(() => {
     let active = true;
 
@@ -58,7 +91,13 @@ export function HomePage() {
         localStorage.getItem(TEAM_STORAGE_KEY) ?? undefined;
 
       try {
-        const data = await IncidentsAPI.list({ teamId: selectedTeamId });
+        const data = await IncidentsAPI.list({
+          teamId: selectedTeamId,
+          severity: filterSeverity ? (filterSeverity as any) : undefined,
+          status: filterStatus ? (filterStatus as any) : undefined,
+          primaryServiceKey: filterServiceKey || undefined,
+          search: searchText || undefined,
+        });
         if (active) setIncidents(data);
       } catch (e: unknown) {
         const msg =
@@ -76,7 +115,7 @@ export function HomePage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [filterSeverity, filterStatus, filterServiceKey, searchText]);
 
   const displayName = me?.name ?? me?.email ?? "Operador";
 
@@ -238,23 +277,66 @@ export function HomePage() {
       <section className="dashboard__filters" aria-label="Filtros de incidentes">
         <span className="dashboard__filters-label">Filtros</span>
         <div className="dashboard__filters-group">
-          <select className="dashboard__filter-input" disabled>
-            <option>Fornecedor (brevemente)</option>
+          <select
+            className="dashboard__filter-input"
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+            title="Filtrar por estado"
+          >
+            <option value="">Estado (todos)</option>
+            <option value="NEW">NEW</option>
+            <option value="TRIAGED">TRIAGED</option>
+            <option value="IN_PROGRESS">IN_PROGRESS</option>
+            <option value="ON_HOLD">ON_HOLD</option>
+            <option value="RESOLVED">RESOLVED</option>
+            <option value="CLOSED">CLOSED</option>
+            <option value="REOPENED">REOPENED</option>
           </select>
-          <select className="dashboard__filter-input" disabled>
-            <option>Serviço (brevemente)</option>
+
+          <select
+            className="dashboard__filter-input"
+            value={filterSeverity}
+            onChange={(e) => setFilterSeverity(e.target.value)}
+            title="Filtrar por severidade"
+          >
+            <option value="">Severidade (todas)</option>
+            <option value="SEV1">SEV1</option>
+            <option value="SEV2">SEV2</option>
+            <option value="SEV3">SEV3</option>
+            <option value="SEV4">SEV4</option>
           </select>
-          <select className="dashboard__filter-input" disabled>
-            <option>Severidade (brevemente)</option>
+
+          <select
+            className="dashboard__filter-input"
+            value={filterServiceKey}
+            onChange={(e) => setFilterServiceKey(e.target.value)}
+            title="Filtrar por serviço"
+          >
+            <option value="">
+              {loadingServices ? "A carregar serviços…" : "Serviço (todos)"}
+            </option>
+            {services.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.name} ({s.key})
+              </option>
+            ))}
           </select>
+
+          <input
+            className="dashboard__filter-input"
+            placeholder="Pesquisar título/descrição"
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            title="Pesquisa"
+          />
         </div>
         <button
           type="button"
           className="dashboard__auto-refresh"
-          disabled
-          title="Auto-refresh manual para já"
+          onClick={() => window.location.reload()}
+          title="Atualizar manual"
         >
-          Atualiza a cada 30s
+          Atualizar
         </button>
       </section>
 
