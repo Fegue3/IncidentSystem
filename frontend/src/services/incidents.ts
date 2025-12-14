@@ -117,6 +117,12 @@ export type IncidentDetails = IncidentSummary & {
 
 export type ListIncidentsParams = {
   teamId?: string;
+  status?: IncidentStatus;
+  severity?: SeverityCode;
+  assigneeId?: string;
+  primaryServiceId?: string;
+  primaryServiceKey?: string;
+  search?: string;
 };
 
 export type CreateIncidentInput = {
@@ -184,10 +190,16 @@ export function getSeverityShortLabel(code: SeverityCode): string {
 /* ---------- helpers internos ---------- */
 
 function buildQuery(params: ListIncidentsParams): string {
-  const search = new URLSearchParams();
-  if (params.teamId) search.set("teamId", params.teamId);
-  const qs = search.toString();
-  return qs ? `?${qs}` : "";
+  const qs = new URLSearchParams();
+  if (params.teamId) qs.set("teamId", params.teamId);
+  if (params.status) qs.set("status", params.status);
+  if (params.severity) qs.set("severity", params.severity);
+  if (params.assigneeId) qs.set("assigneeId", params.assigneeId);
+  if (params.primaryServiceId) qs.set("primaryServiceId", params.primaryServiceId);
+  if (params.primaryServiceKey) qs.set("primaryServiceKey", params.primaryServiceKey);
+  if (params.search?.trim()) qs.set("search", params.search.trim());
+  const s = qs.toString();
+  return s ? `?${s}` : "";
 }
 
 /* ---------- API ---------- */
