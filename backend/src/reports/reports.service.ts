@@ -12,6 +12,8 @@ import {
   TimelineEventType,
 } from '@prisma/client';
 import PDFDocument = require('pdfkit');
+import type PDFKit from 'pdfkit';
+
 import { PrismaService } from '../prisma/prisma.service';
 import { ReportsGroupBy } from './dto/reports-breakdown.dto';
 import { ReportsInterval } from './dto/reports-timeseries.dto';
@@ -28,7 +30,7 @@ type JwtUserLike = {
   role?: Role | 'USER' | 'ADMIN' | undefined;
 };
 
-type PdfDoc = any;
+type PdfDoc = PDFKit.PDFDocument;
 
 const MS_DAY = 24 * 60 * 60 * 1000;
 
@@ -42,7 +44,7 @@ const COLORS = {
   offWhite: '#F4F2EF',
   charcoal: '#2E2E2E',
   white: '#FFFFFF',
-};
+} as const;
 
 type ResolvedRange =
   | { mode: 'lifetime' }
@@ -61,7 +63,58 @@ type SimpleComment = {
   message: string;
 };
 
-type IncidentForPdf = any;
+type IncidentAuthor = { name: string | null; email: string } | null;
+
+type IncidentTimelineRow = {
+  createdAt: Date;
+  type: string;
+  message: string | null;
+  author?: IncidentAuthor;
+};
+
+type IncidentCommentRow = {
+  createdAt: Date;
+  message?: string | null;
+  content?: string | null;
+  text?: string | null;
+  body?: string | null;
+  author?: IncidentAuthor;
+};
+
+type IncidentForPdf = {
+  id: string;
+  title: string | null;
+  description: string | null;
+  severity: Severity;
+  status: IncidentStatus | string;
+  createdAt: Date;
+  resolvedAt: Date | null;
+  closedAt?: Date | null;
+  auditHash?: string | null;
+  teamId?: string | null;
+
+  team?: { name: string | null } | null;
+  reporter?: IncidentAuthor & { id?: string };
+  assignee?: IncidentAuthor & { id?: string };
+
+  primaryService?: { id: string; name: string | null; key: string } | null;
+
+  timeline?: IncidentTimelineRow[];
+  comments?: IncidentCommentRow[];
+
+  categories?: { category?: { id: string; name: string } | null }[];
+  tags?: { label: string }[];
+  _count?: { capas: number };
+  capas?: unknown[];
+};
+
+const OPEN_STATUSES: IncidentStatus[] = [
+  IncidentStatus.NEW,
+  IncidentStatus.TRIAGED,
+  IncidentStatus.IN_PROGRESS,
+  IncidentStatus.ON_HOLD,
+  IncidentStatus.REOPENED,
+];
 
 @Injectable()
 export class ReportsService {
@@ -118,7 +171,9 @@ export class ReportsService {
   ) {
     if (role === Role.ADMIN) return;
     if (!scopedTeamId || incidentTeamId !== scopedTeamId) {
-      throw new ForbiddenException('You can only export incidents from your team');
+      throw new ForbiddenException(
+        'You can only export incidents from your team',
+      );
     }
   }
 
@@ -171,7 +226,15 @@ export class ReportsService {
   ): { from: string; to: string } {
     const to = toIso ? new Date(toIso) : new Date();
     const toStart = new Date(
-      Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), to.getUTCDate(), 0, 0, 0, 0),
+      Date.UTC(
+        to.getUTCFullYear(),
+        to.getUTCMonth(),
+        to.getUTCDate(),
+        0,
+        0,
+        0,
+        0,
+      ),
     );
     const fromStart = new Date(toStart.getTime() - (days - 1) * MS_DAY);
     const toEnd = new Date(toStart.getTime() + MS_DAY - 1);
@@ -202,6 +265,7 @@ export class ReportsService {
     severity?: Severity;
   }): Prisma.IncidentWhereInput {
     const where: Prisma.IncidentWhereInput = {};
+
     if (input.severity) where.severity = input.severity;
     if (input.teamId) where.teamId = input.teamId;
     if (input.serviceId) where.primaryServiceId = input.serviceId;
@@ -211,6 +275,7 @@ export class ReportsService {
       if (input.from) (where.createdAt as any).gte = new Date(input.from);
       if (input.to) (where.createdAt as any).lte = new Date(input.to);
     }
+
     return where;
   }
 
@@ -236,6 +301,7 @@ export class ReportsService {
   private fmtDateTime(d: Date | string | null | undefined): string {
     if (!d) return '—';
     const dt = typeof d === 'string' ? new Date(d) : d;
+    if (Number.isNaN(dt.getTime())) return '—';
     return dt.toISOString().replace('T', ' ').slice(0, 19) + 'Z';
   }
 
@@ -268,7 +334,7 @@ export class ReportsService {
       size: 'A4',
       bufferPages: true,
       margins: { top: 60, bottom: 40, left: 48, right: 48 },
-    });
+    }) as PdfDoc;
 
     const chunks: Buffer[] = [];
     doc.on('data', (c: Buffer) => chunks.push(c));
@@ -460,7 +526,7 @@ export class ReportsService {
     const raw = String(text ?? '').replaceAll(/\r\n/g, '\n');
     if (!raw.trim()) return { chunk: '—', rest: '' };
 
-    if (doc.heightOfString(raw, { width, ...(opts) }) <= maxHeight) {
+    if (doc.heightOfString(raw, { width, ...(opts ?? {}) }) <= maxHeight) {
       return { chunk: raw, rest: '' };
     }
 
@@ -472,7 +538,7 @@ export class ReportsService {
     while (lo <= hi) {
       const mid = Math.floor((lo + hi) / 2);
       const cand = words.slice(0, mid).join(' ');
-      const h = doc.heightOfString(cand, { width, ...(opts) });
+      const h = doc.heightOfString(cand, { width, ...(opts ?? {}) });
       if (h <= maxHeight) {
         best = mid;
         lo = mid + 1;
@@ -495,7 +561,7 @@ export class ReportsService {
   ) {
     let remaining = String(text ?? '');
     if (!remaining.trim()) {
-      doc.text('—', x, doc.y, { width, ...(opts) });
+      doc.text('—', x, doc.y, { width, ...(opts ?? {}) });
       return;
     }
 
@@ -513,7 +579,7 @@ export class ReportsService {
         maxH,
         opts,
       );
-      doc.text(chunk, x, doc.y, { width, ...(opts) });
+      doc.text(chunk, x, doc.y, { width, ...(opts ?? {}) });
       remaining = rest;
 
       if (remaining.trim().length > 0) {
@@ -537,7 +603,7 @@ export class ReportsService {
       maxHeight,
       opts,
     );
-    doc.text(chunk, x, doc.y, { width, ...(opts) });
+    doc.text(chunk, x, doc.y, { width, ...(opts ?? {}) });
     return { rest };
   }
 
@@ -859,15 +925,15 @@ export class ReportsService {
   // Comments (NORMAL list)
   // -------------------------
 
-  private normalizeCommentText(c: any): string {
+  private normalizeCommentText(c: IncidentCommentRow): string {
     const raw = String(c?.message ?? c?.content ?? c?.text ?? c?.body ?? '');
     return raw.trim() ? raw : '—';
   }
 
-  private pickAuthorLabel(u: any): string {
+  private pickAuthorLabel(u: IncidentAuthor): string {
     if (!u) return '—';
-    const name = String(u?.name ?? '').trim();
-    const email = String(u?.email ?? '').trim();
+    const name = String((u as any)?.name ?? '').trim();
+    const email = String((u as any)?.email ?? '').trim();
     return name || email || '—';
   }
 
@@ -970,17 +1036,9 @@ export class ReportsService {
     const scopedTeamId = await this.resolveTeamScope(auth, input.teamId);
     const baseWhere = this.buildIncidentWhere({ ...input, teamId: scopedTeamId });
 
-    const openStatuses: IncidentStatus[] = [
-      IncidentStatus.NEW,
-      IncidentStatus.TRIAGED,
-      IncidentStatus.IN_PROGRESS,
-      IncidentStatus.ON_HOLD,
-      IncidentStatus.REOPENED,
-    ];
-
     const [openCount, resolvedCount, closedCount] = await Promise.all([
       this.prisma.incident.count({
-        where: { ...baseWhere, status: { in: openStatuses } },
+        where: { ...baseWhere, status: { in: OPEN_STATUSES } },
       }),
       this.prisma.incident.count({
         where: { ...baseWhere, resolvedAt: { not: null } },
@@ -991,7 +1049,7 @@ export class ReportsService {
     ]);
 
     const mttrRows = await this.prisma.$queryRaw<
-      { avg_seconds: any; median_seconds: any; p90_seconds: any }[]
+      { avg_seconds: unknown; median_seconds: unknown; p90_seconds: unknown }[]
     >(Prisma.sql`
       SELECT
         AVG(EXTRACT(EPOCH FROM ("resolvedAt" - "createdAt"))) AS avg_seconds,
@@ -1018,7 +1076,7 @@ export class ReportsService {
       p90_seconds: null,
     };
 
-    const slaRows = await this.prisma.$queryRaw<{ compliance: any }[]>(
+    const slaRows = await this.prisma.$queryRaw<{ compliance: unknown }[]>(
       Prisma.sql`
       SELECT
         AVG(
@@ -1092,7 +1150,11 @@ export class ReportsService {
         _count: { _all: true },
       });
       return rows
-        .map((r) => ({ key: r.severity, label: r.severity, count: r._count._all }))
+        .map((r) => ({
+          key: r.severity,
+          label: r.severity,
+          count: r._count._all,
+        }))
         .sort((a, b) => b.count - a.count);
     }
 
@@ -1103,7 +1165,11 @@ export class ReportsService {
         _count: { _all: true },
       });
       return rows
-        .map((r) => ({ key: r.status, label: r.status, count: r._count._all }))
+        .map((r) => ({
+          key: r.status,
+          label: r.status,
+          count: r._count._all,
+        }))
         .sort((a, b) => b.count - a.count);
     }
 
@@ -1170,7 +1236,9 @@ export class ReportsService {
         _count: { _all: true },
       });
 
-      const ids = rows.map((r) => r.primaryServiceId).filter(Boolean) as string[];
+      const ids = rows
+        .map((r) => r.primaryServiceId)
+        .filter(Boolean) as string[];
       const services = ids.length
         ? await this.prisma.service.findMany({
           where: { id: { in: ids } },
@@ -1531,26 +1599,28 @@ export class ReportsService {
     mergedComments: SimpleComment[];
   } {
     const events: TimelineEvent[] =
-      (inc.timeline ?? []).map((e: any) => ({
+      (inc.timeline ?? []).map((e) => ({
         createdAt: e.createdAt,
         type: e.type,
         message: e.message,
-        author: e.author ? { name: e.author.name, email: e.author.email } : null,
+        author: e.author
+          ? { name: (e.author as any).name, email: (e.author as any).email }
+          : null,
       })) ?? [];
 
     const timelineComments: SimpleComment[] =
       (inc.timeline ?? [])
-        .filter((e: any) => this.timelineKind(e.type) === 'COMMENT')
-        .map((e: any) => ({
+        .filter((e) => this.timelineKind(e.type) === 'COMMENT')
+        .map((e) => ({
           createdAt: e.createdAt,
-          authorLabel: this.pickAuthorLabel(e.author),
+          authorLabel: this.pickAuthorLabel(e.author ?? null),
           message: String(e.message ?? '—'),
         })) ?? [];
 
     const tableComments: SimpleComment[] =
-      (inc.comments ?? []).map((c: any) => ({
+      (inc.comments ?? []).map((c) => ({
         createdAt: c.createdAt,
-        authorLabel: this.pickAuthorLabel(c.author),
+        authorLabel: this.pickAuthorLabel(c.author ?? null),
         message: this.normalizeCommentText(c),
       })) ?? [];
 
@@ -1585,8 +1655,16 @@ export class ReportsService {
     const slaMet = this.computeSlaMet(mttrSeconds, slaTarget);
 
     this.metricCards(doc, [
-      { label: 'Severity', value: String(inc.severity), accent: COLORS.warmOrange },
-      { label: 'Status', value: String(inc.status), accent: COLORS.sapphireBlue },
+      {
+        label: 'Severity',
+        value: String(inc.severity),
+        accent: COLORS.warmOrange,
+      },
+      {
+        label: 'Status',
+        value: String(inc.status),
+        accent: COLORS.sapphireBlue,
+      },
       {
         label: 'SLA',
         value: slaMet == null ? '—' : slaMet ? 'OK' : 'FAIL',
@@ -1612,8 +1690,8 @@ export class ReportsService {
     this.sectionTitle(doc, 'Detalhes', leftW, leftX);
 
     const team = inc.team?.name ?? '—';
-    const owner = inc.assignee ? this.pickAuthorLabel(inc.assignee) : '—';
-    const reporter = inc.reporter ? this.pickAuthorLabel(inc.reporter) : '—';
+    const owner = inc.assignee ? this.pickAuthorLabel(inc.assignee as any) : '—';
+    const reporter = inc.reporter ? this.pickAuthorLabel(inc.reporter as any) : '—';
 
     doc.fillColor(COLORS.deepNavy).font('Helvetica').fontSize(10);
     doc.text(`Equipa: ${team}`, leftX, doc.y, { width: leftW });
@@ -1676,7 +1754,15 @@ export class ReportsService {
     let evIndex = 0;
     let cIndex = 0;
 
-    this.twoColumnHeaders(doc, 'Timeline', 'Comentários', leftX, leftW, rightX, rightW);
+    this.twoColumnHeaders(
+      doc,
+      'Timeline',
+      'Comentários',
+      leftX,
+      leftW,
+      rightX,
+      rightW,
+    );
 
     while (evIndex < events.length || cIndex < mergedComments.length) {
       const topY = doc.y;
@@ -1684,7 +1770,15 @@ export class ReportsService {
 
       if (availableH < 140) {
         this.newPage(doc);
-        this.twoColumnHeaders(doc, 'Timeline', 'Comentários', leftX, leftW, rightX, rightW);
+        this.twoColumnHeaders(
+          doc,
+          'Timeline',
+          'Comentários',
+          leftX,
+          leftW,
+          rightX,
+          rightW,
+        );
         continue;
       }
 
@@ -1718,7 +1812,15 @@ export class ReportsService {
         // fallback anti-loop-infinito se nada progride
         if (!progressed && cIndex < mergedComments.length) cIndex++;
         this.newPage(doc);
-        this.twoColumnHeaders(doc, 'Timeline', 'Comentários', leftX, leftW, rightX, rightW);
+        this.twoColumnHeaders(
+          doc,
+          'Timeline',
+          'Comentários',
+          leftX,
+          leftW,
+          rightX,
+          rightW,
+        );
       }
     }
   }
@@ -1750,7 +1852,9 @@ export class ReportsService {
           authorId: null,
         },
       });
-      throw new ConflictException('Integrity check failed. PDF export blocked.');
+      throw new ConflictException(
+        'Integrity check failed. PDF export blocked.',
+      );
     }
   }
 
@@ -1791,10 +1895,16 @@ export class ReportsService {
       rangeLabelCard = `${this.fmtShortDate(resolved.from)} → ${this.fmtShortDate(
         resolved.to,
       )}`;
-      headerPeriodLine = `Período: ${this.fmtDateTime(resolved.from)}  |  ${this.fmtDateTime(
-        resolved.to,
-      )}`;
-      return { resolved, effectiveInput, chartRange, rangeLabelCard, headerPeriodLine };
+      headerPeriodLine = `Período: ${this.fmtDateTime(
+        resolved.from,
+      )}  |  ${this.fmtDateTime(resolved.to)}`;
+      return {
+        resolved,
+        effectiveInput,
+        chartRange,
+        rangeLabelCard,
+        headerPeriodLine,
+      };
     }
 
     const whereNoDates = this.buildIncidentWhere({
@@ -1817,9 +1927,9 @@ export class ReportsService {
         from: this.startOfDayUTC(min.toISOString()).toISOString(),
         to: this.endOfDayUTC(max.toISOString()).toISOString(),
       };
-      headerPeriodLine = `Período (lifetime): ${this.fmtDateTime(min)}  |  ${this.fmtDateTime(
-        max,
-      )}`;
+      headerPeriodLine = `Período (lifetime): ${this.fmtDateTime(
+        min,
+      )}  |  ${this.fmtDateTime(max)}`;
       rangeLabelCard = 'Lifetime';
     } else {
       // sem dados => fallback visual
@@ -1876,7 +1986,7 @@ export class ReportsService {
   ): Promise<Buffer> {
     const scopedTeamId = await this.resolveTeamScope(auth, input.teamId);
 
-    const incident = await this.prisma.incident.findUnique({
+    const incident = (await this.prisma.incident.findUnique({
       where: { id: input.incidentId as string },
       include: {
         reporter: { select: { id: true, name: true, email: true } },
@@ -1893,20 +2003,27 @@ export class ReportsService {
         },
         capas: { take: 1 },
       },
-    });
+    })) as unknown as IncidentForPdf | null;
 
     if (!incident) throw new NotFoundException('Incident not found');
 
     this.assertIncidentExportAllowed(role, scopedTeamId, incident.teamId);
 
     if (secret) {
-      await this.verifyIncidentAuditOrThrow(incident.id, incident.auditHash, secret);
+      await this.verifyIncidentAuditOrThrow(
+        incident.id,
+        incident.auditHash,
+        secret,
+      );
     }
 
     const { events, mergedComments } = this.buildEventsAndMergedComments(incident);
 
     return this.pdfToBuffer((doc) => {
-      const { mttrSeconds, slaTarget } = this.renderIncidentTitleAndKpis(doc, incident);
+      const { mttrSeconds, slaTarget } = this.renderIncidentTitleAndKpis(
+        doc,
+        incident,
+      );
       const layout = this.renderDetailsAndDescriptionTwoColumns(
         doc,
         incident,
@@ -1914,7 +2031,12 @@ export class ReportsService {
         slaTarget,
       );
 
-      this.renderTimelineAndCommentsTwoColumns(doc, layout, events, mergedComments);
+      this.renderTimelineAndCommentsTwoColumns(
+        doc,
+        layout,
+        events,
+        mergedComments,
+      );
 
       if (secret && incident.auditHash) {
         this.sectionTitle(doc, 'Audit', layout.leftW, layout.leftX);
@@ -1950,7 +2072,7 @@ export class ReportsService {
 
     const where = this.buildIncidentWhere(effectiveInput);
 
-    const incidents = await this.prisma.incident.findMany({
+    const incidents = (await this.prisma.incident.findMany({
       where,
       take: 200,
       orderBy: { createdAt: 'desc' },
@@ -1969,7 +2091,7 @@ export class ReportsService {
           include: { author: { select: { name: true, email: true } } },
         },
       },
-    });
+    })) as unknown as IncidentForPdf[];
 
     const kpis = await this.getKpis(effectiveInput, auth);
 
@@ -2002,18 +2124,30 @@ export class ReportsService {
 
       this.metricCards(doc, [
         { label: 'Abertos', value: String(kpis.openCount), accent: COLORS.warmOrange },
-        { label: 'Resolvidos', value: String(kpis.resolvedCount), accent: COLORS.emeraldGreen },
+        {
+          label: 'Resolvidos',
+          value: String(kpis.resolvedCount),
+          accent: COLORS.emeraldGreen,
+        },
         { label: 'Fechados', value: String(kpis.closedCount), accent: COLORS.deepNavy },
       ]);
 
       this.metricCards(doc, [
-        { label: 'MTTR avg', value: this.humanSeconds(kpis.mttrSeconds?.avg), accent: COLORS.deepNavy },
+        {
+          label: 'MTTR avg',
+          value: this.humanSeconds(kpis.mttrSeconds?.avg),
+          accent: COLORS.deepNavy,
+        },
         {
           label: 'MTTR median',
           value: this.humanSeconds(kpis.mttrSeconds?.median),
           accent: COLORS.deepNavy,
         },
-        { label: 'MTTR p90', value: this.humanSeconds(kpis.mttrSeconds?.p90), accent: COLORS.deepNavy },
+        {
+          label: 'MTTR p90',
+          value: this.humanSeconds(kpis.mttrSeconds?.p90),
+          accent: COLORS.deepNavy,
+        },
       ]);
 
       this.metricCards(doc, [
