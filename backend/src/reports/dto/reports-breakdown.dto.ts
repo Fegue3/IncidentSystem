@@ -1,12 +1,13 @@
-import { IsEnum, IsISO8601, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsOptional, IsString } from 'class-validator';
 import { Severity } from '@prisma/client';
 
 export enum ReportsGroupBy {
   severity = 'severity',
-  assignee = 'assignee',
-  service = 'service',
+  status = 'status',
   team = 'team',
+  service = 'service',
   category = 'category',
+  assignee = 'assignee',
 }
 
 export class ReportsBreakdownQueryDto {
@@ -14,11 +15,11 @@ export class ReportsBreakdownQueryDto {
   groupBy!: ReportsGroupBy;
 
   @IsOptional()
-  @IsISO8601()
+  @IsString()
   from?: string;
 
   @IsOptional()
-  @IsISO8601()
+  @IsString()
   to?: string;
 
   @IsOptional()
