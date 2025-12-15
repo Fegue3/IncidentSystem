@@ -1,4 +1,4 @@
-import { IsEnum, IsISO8601, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsOptional, IsString, IsISO8601, IsInt, Min, Max } from 'class-validator';
 import { Severity } from '@prisma/client';
 
 export class ReportsExportPdfQueryDto {
@@ -9,6 +9,12 @@ export class ReportsExportPdfQueryDto {
   @IsOptional()
   @IsISO8601()
   to?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(365)
+  lastDays?: number;
 
   @IsOptional()
   @IsString()
@@ -22,7 +28,6 @@ export class ReportsExportPdfQueryDto {
   @IsEnum(Severity)
   severity?: Severity;
 
-  // se vier, exporta “PDF auditável” de um incidente só
   @IsOptional()
   @IsString()
   incidentId?: string;
