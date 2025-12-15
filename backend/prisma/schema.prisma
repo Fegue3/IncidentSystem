@@ -175,6 +175,10 @@ model Incident {
   resolvedAt   DateTime?
   closedAt     DateTime?
 
+  // --- Compliance / Audit ---
+  auditHash           String?
+  auditHashUpdatedAt  DateTime?
+
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 
@@ -184,6 +188,7 @@ model Incident {
   @@index([reporterId])
   @@index([teamId])
   @@index([createdAt])
+  @@index([auditHashUpdatedAt])
 }
 
 model IncidentTimelineEvent {
