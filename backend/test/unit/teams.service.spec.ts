@@ -3,18 +3,26 @@ import { TeamsService } from '../../src/teams/teams.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
 
 // mock simples do Prisma
-const createMockPrisma = () => ({
-  team: {
-    create: jest.fn(),
-    findMany: jest.fn(),
-    findUnique: jest.fn(),
-    update: jest.fn(),
-    delete: jest.fn(),
-  },
-  user: {
-    findUnique: jest.fn(),
-  },
-});
+const createMockPrisma = () => {
+  const prisma: any = {
+    team: {
+      create: jest.fn(),
+      findMany: jest.fn(),
+      findUnique: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+      findFirst: jest.fn(),
+    },
+    user: {
+      findUnique: jest.fn(),
+    },
+  };
+
+  // ✅ mock de transaction: executa callback com tx=prisma
+  prisma.$transaction = jest.fn(async (cb: any) => cb(prisma));
+
+  return prisma;
+};
 
 describe('TeamsService', () => {
   let service: TeamsService;
@@ -187,11 +195,13 @@ describe('TeamsService', () => {
 
   // ---------- addMember / removeMember ----------
 
-  it('addMember liga user à equipa', async () => {
-    prisma.team.findUnique
-      .mockResolvedValueOnce({ id: 'team-1' }) // equipa existe
-      .mockResolvedValueOnce({ id: 'team-1' }); // chamada interna não usada, mas ok
+  it('addMember liga user à equipa (e remove de outras equipas)', async () => {
+    prisma.team.findUnique.mockResolvedValue({ id: 'team-1' });
     prisma.user.findUnique.mockResolvedValue({ id: 'u1' });
+
+    // ✅ user não está em nenhuma equipa antes
+    prisma.team.findMany.mockResolvedValue([]);
+
     prisma.team.update.mockResolvedValue({
       id: 'team-1',
       members: [{ id: 'u1' }],
@@ -199,6 +209,7 @@ describe('TeamsService', () => {
 
     const result = await service.addMember('team-1', 'u1');
 
+    // como findMany devolveu [], deve só conectar ao target
     expect(prisma.team.update).toHaveBeenCalledWith({
       where: { id: 'team-1' },
       data: {
@@ -210,6 +221,7 @@ describe('TeamsService', () => {
         members: true,
       },
     });
+
     expect(result).toEqual({ id: 'team-1', members: [{ id: 'u1' }] });
   });
 
