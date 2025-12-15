@@ -1,3 +1,4 @@
+// test/integration/reports.export.int.spec.ts
 import { PrismaClient, IncidentStatus, Severity } from '@prisma/client';
 import { resetDb } from './_helpers/prisma-reset';
 import { ReportsService } from '../../src/reports/reports.service';
@@ -25,6 +26,10 @@ describe('Reports CSV (integration)', () => {
       data: { email: 'rep@csv.com', name: 'Reporter', password: 'x' },
     });
 
+    const now = new Date();
+    const createdAt = new Date(now.getTime() - 60 * 60 * 1000);
+    const resolvedAt = now;
+
     await prisma.incident.create({
       data: {
         title: 'CSV Incident',
@@ -32,14 +37,20 @@ describe('Reports CSV (integration)', () => {
         status: IncidentStatus.RESOLVED,
         severity: Severity.SEV2,
         reporterId: reporter.id,
-        createdAt: new Date('2025-01-01T00:00:00.000Z'),
-        resolvedAt: new Date('2025-01-01T01:00:00.000Z'),
+        createdAt,
+        resolvedAt,
       },
     });
 
-    const csv = await service.exportCsv({ from: '2025-01-01T00:00:00.000Z', to: '2025-12-31T00:00:00.000Z' });
+    const csv = await service.exportCsv({}, { id: reporter.id, role: 'ADMIN' });
 
-    expect(csv).toContain('id,title,status,severity');
+    const header = csv.split('\n')[0];
+
+    // ✅ header atual (compatível com o que o teu service está a devolver agora)
+    expect(header).toContain(
+      'id,createdAt,title,severity,status,team,service,assignee,reporter,mttrSeconds,slaTargetSeconds,slaMet,capaCount,resolvedAt,closedAt,categories,tags',
+    );
+
     expect(csv).toContain('CSV Incident');
   });
 });
