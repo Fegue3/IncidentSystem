@@ -17,11 +17,26 @@ import { ChangeStatusDto } from './dto/change-status.dto';
 import { AddCommentDto } from './dto/add-comment.dto';
 import { ListIncidentsDto } from './dto/list-incidents.dto';
 import { NotificationsService } from '../notifications/notifications.service';
-
+import { ensureIncidentAuditHash } from '../audit/incident-audit';
 
 @Injectable()
 export class IncidentsService {
-  constructor(private prisma: PrismaService, private readonly notificationsService: NotificationsService) { }
+  constructor(
+    private prisma: PrismaService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
+
+  private async refreshAuditHash(incidentId: string) {
+    try {
+      await ensureIncidentAuditHash(
+        this.prisma as any,
+        incidentId,
+        process.env.AUDIT_HMAC_SECRET,
+      );
+    } catch {
+      // best-effort: não rebenta a operação principal
+    }
+  }
 
   private validateStatusTransition(current: IncidentStatus, next: IncidentStatus) {
     const allowed: Record<IncidentStatus, IncidentStatus[]> = {
@@ -117,20 +132,20 @@ export class IncidentsService {
           : undefined,
       categories: dto.categoryIds
         ? {
-          create: dto.categoryIds.map((categoryId) => ({
-            category: { connect: { id: categoryId } },
-          })),
-        }
+            create: dto.categoryIds.map((categoryId) => ({
+              category: { connect: { id: categoryId } },
+            })),
+          }
         : undefined,
       tags: dto.tagIds
         ? {
-          connect: dto.tagIds.map((tagId) => ({ id: tagId })),
-        }
+            connect: dto.tagIds.map((tagId) => ({ id: tagId })),
+          }
         : undefined,
     };
 
-    return this.prisma.$transaction(async (tx) => {
-      const incident = await tx.incident.create({
+    const incident = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.incident.create({
         data,
         include: {
           reporter: true,
@@ -142,7 +157,7 @@ export class IncidentsService {
 
       await tx.incidentTimelineEvent.create({
         data: {
-          incidentId: incident.id,
+          incidentId: created.id,
           authorId: reporterId,
           type: TimelineEventType.STATUS_CHANGE,
           fromStatus: null,
@@ -152,37 +167,37 @@ export class IncidentsService {
       });
 
       await tx.notificationSubscription.create({
-        data: { userId: reporterId, incidentId: incident.id },
+        data: { userId: reporterId, incidentId: created.id },
       });
 
-      if (incident.primaryServiceId) {
+      if (created.primaryServiceId) {
         await tx.incidentTimelineEvent.create({
           data: {
-            incidentId: incident.id,
+            incidentId: created.id,
             authorId: reporterId,
             type: TimelineEventType.FIELD_UPDATE,
-            message: `Serviço definido: ${incident.primaryService?.name ?? 'Service'}`,
+            message: `Serviço definido: ${created.primaryService?.name ?? 'Service'}`,
           },
         });
       }
 
-      if (incident.severity === Severity.SEV1 || incident.severity === Severity.SEV2) {
-        const shortId = incident.id.slice(0, 8).toUpperCase();
-        const service = incident.primaryService?.name ?? '—';
-        const team = incident.team?.name ?? '—';
+      if (created.severity === Severity.SEV1 || created.severity === Severity.SEV2) {
+        const shortId = created.id.slice(0, 8).toUpperCase();
+        const service = created.primaryService?.name ?? '—';
+        const team = created.team?.name ?? '—';
         const owner =
-          incident.assignee?.name ??
-          incident.assignee?.email ??
+          created.assignee?.name ??
+          created.assignee?.email ??
           'Sem owner';
 
         const url = process.env.FRONTEND_BASE_URL
-          ? `${process.env.FRONTEND_BASE_URL}/incidents/${incident.id}`
+          ? `${process.env.FRONTEND_BASE_URL}/incidents/${created.id}`
           : null;
 
         const msg =
-          `🚨 **${incident.severity}** | **${incident.title}**\n` +
+          `🚨 **${created.severity}** | **${created.title}**\n` +
           `• ID: \`${shortId}\`\n` +
-          `• Status: **${incident.status}**\n` +
+          `• Status: **${created.status}**\n` +
           `• Serviço: **${service}**\n` +
           `• Equipa: **${team}**\n` +
           `• Owner: **${owner}**\n` +
@@ -191,23 +206,26 @@ export class IncidentsService {
         const discord = await this.notificationsService.sendDiscord(msg);
 
         const pagerduty = await this.notificationsService.triggerPagerDuty(
-          incident.title,
-          incident.severity,
-          incident.id,
+          created.title,
+          created.severity,
+          created.id,
         );
 
         await tx.incidentTimelineEvent.create({
           data: {
-            incidentId: incident.id,
+            incidentId: created.id,
             authorId: reporterId,
-            type: TimelineEventType.FIELD_UPDATE, // não invento enum novo
+            type: TimelineEventType.FIELD_UPDATE,
             message: `Notificações: Discord=${discord.ok ? 'OK' : 'FAIL'} | PagerDuty=${pagerduty.ok ? 'OK' : 'FAIL'}`,
           },
         });
       }
 
-      return incident;
+      return created;
     });
+
+    await this.refreshAuditHash(incident.id);
+    return incident;
   }
 
   async findAll(query: ListIncidentsDto) {
@@ -264,6 +282,7 @@ export class IncidentsService {
         primaryService: { include: { ownerTeam: true } },
         categories: { include: { category: true } },
         tags: true,
+        capas: { orderBy: { createdAt: 'asc' }, include: { owner: true } },
         comments: {
           orderBy: { createdAt: 'asc' },
           include: { author: true },
@@ -300,8 +319,10 @@ export class IncidentsService {
     const data: Prisma.IncidentUpdateInput = {};
 
     const titleChanged = dto.title !== undefined && dto.title !== incident.title;
-    const descriptionChanged = dto.description !== undefined && dto.description !== incident.description;
-    const teamChanged = dto.teamId !== undefined && (dto.teamId || null) !== (incident.teamId ?? null);
+    const descriptionChanged =
+      dto.description !== undefined && dto.description !== incident.description;
+    const teamChanged =
+      dto.teamId !== undefined && (dto.teamId || null) !== (incident.teamId ?? null);
 
     const severityChanged = dto.severity !== undefined && dto.severity !== incident.severity;
 
@@ -351,7 +372,7 @@ export class IncidentsService {
       }
     }
 
-    // categories/tags (mantive igual ao teu)
+    // categories/tags
     if (dto.categoryIds) {
       await this.prisma.categoryOnIncident.deleteMany({ where: { incidentId: id } });
       data.categories = {
@@ -365,8 +386,8 @@ export class IncidentsService {
       data.tags = { set: dto.tagIds.map((tagId) => ({ id: tagId })) };
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.incident.update({
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const u = await tx.incident.update({
         where: { id },
         data,
         include: {
@@ -377,7 +398,6 @@ export class IncidentsService {
         },
       });
 
-      // ✅ criar eventos separados (1 por mudança relevante)
       const events: Prisma.IncidentTimelineEventCreateManyInput[] = [];
 
       if (serviceChanged) {
@@ -385,37 +405,33 @@ export class IncidentsService {
           incidentId: id,
           authorId: userId,
           type: TimelineEventType.FIELD_UPDATE,
-          message: updated.primaryServiceId
-            ? `Serviço atualizado: ${serviceNameForMessage ?? updated.primaryService?.name ?? 'Service'}`
+          message: u.primaryServiceId
+            ? `Serviço atualizado: ${serviceNameForMessage ?? u.primaryService?.name ?? 'Service'}`
             : 'Serviço removido',
         });
       }
 
       if (assigneeChanged) {
         const label =
-          updated.assignee?.name?.trim()
-            ? updated.assignee.name
-            : (updated.assignee?.email ?? 'unknown');
+          u.assignee?.name?.trim() ? u.assignee.name : (u.assignee?.email ?? 'unknown');
 
         events.push({
           incidentId: id,
           authorId: userId,
           type: TimelineEventType.ASSIGNMENT,
-          message: updated.assigneeId
-            ? `Responsável atualizado: ${label}`
-            : 'Responsável removido',
+          message: u.assigneeId ? `Responsável atualizado: ${label}` : 'Responsável removido',
         });
       }
+
       if (severityChanged) {
         events.push({
           incidentId: id,
           authorId: userId,
           type: TimelineEventType.FIELD_UPDATE,
-          message: `Severidade atualizada: ${incident.severity} → ${updated.severity}`,
+          message: `Severidade atualizada: ${incident.severity} → ${u.severity}`,
         });
       }
 
-      // fallback se mudou “algo” mas não foi service/assignee/severity
       const somethingElseChanged =
         titleChanged || descriptionChanged || teamChanged || !!dto.categoryIds || !!dto.tagIds;
 
@@ -432,10 +448,12 @@ export class IncidentsService {
         await tx.incidentTimelineEvent.createMany({ data: events });
       }
 
-      return updated;
+      return u;
     });
-  }
 
+    await this.refreshAuditHash(id);
+    return updated;
+  }
 
   async changeStatus(id: string, dto: ChangeStatusDto, userId: string) {
     const incident = await this.prisma.incident.findUnique({ where: { id } });
@@ -449,7 +467,7 @@ export class IncidentsService {
     const updateData: Prisma.IncidentUpdateInput = { status: to };
 
     const tsField = this.getStatusTimestampField(to);
-    if (tsField && !incident[tsField as keyof typeof incident]) {
+    if (tsField && !(incident as any)[tsField]) {
       (updateData as any)[tsField] = new Date();
     }
 
@@ -481,6 +499,7 @@ export class IncidentsService {
       });
     }
 
+    await this.refreshAuditHash(id);
     return updated;
   }
 
@@ -502,6 +521,7 @@ export class IncidentsService {
       }),
     ]);
 
+    await this.refreshAuditHash(id);
     return comment;
   }
 
@@ -541,6 +561,7 @@ export class IncidentsService {
       },
     });
 
+    await this.refreshAuditHash(id);
     return { subscribed: true };
   }
 
@@ -558,6 +579,7 @@ export class IncidentsService {
       },
     });
 
+    await this.refreshAuditHash(id);
     return { subscribed: false };
   }
 
