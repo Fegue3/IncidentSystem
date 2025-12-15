@@ -1,14 +1,20 @@
-import { IsEnum, IsISO8601, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { Severity } from '@prisma/client';
 
 export class ReportsExportCsvQueryDto {
   @IsOptional()
-  @IsISO8601()
+  @IsString()
   from?: string;
 
   @IsOptional()
-  @IsISO8601()
+  @IsString()
   to?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(365)
+  lastDays?: number; // default aplicado no service (30)
 
   @IsOptional()
   @IsString()
