@@ -123,7 +123,7 @@ describe('Reports (integration)', () => {
       ],
     });
 
-    const out = await service.getKpis({});
+    const out = await service.getKpis({}, { id: reporter.id, role: 'ADMIN' });
 
     expect(out.openCount).toBe(1);     // i3
     expect(out.resolvedCount).toBe(3); // i1,i2,i4
@@ -161,7 +161,10 @@ describe('Reports (integration)', () => {
       ],
     });
 
-    const out = await service.getBreakdown({ groupBy: ReportsGroupBy.category });
+    const out = await service.getBreakdown(
+      { groupBy: ReportsGroupBy.category },
+      { id: reporter.id, role: 'ADMIN' },
+    );
 
     // sem impor ordem, só valida que existem
     expect(out.find((x) => x.label === 'Network')?.count).toBe(1);
@@ -200,11 +203,14 @@ describe('Reports (integration)', () => {
       },
     });
 
-    const out = await service.getTimeseries({
-      interval: ReportsInterval.day,
-      from: '2025-02-01T00:00:00.000Z',
-      to: '2025-02-03T00:00:00.000Z',
-    });
+    const out = await service.getTimeseries(
+      {
+        interval: ReportsInterval.day,
+        from: '2025-02-01T00:00:00.000Z',
+        to: '2025-02-03T00:00:00.000Z',
+      },
+      { id: reporter.id, role: 'ADMIN' },
+    );
 
     expect(out.some((x) => x.date.startsWith('2025-02-01') && x.count === 2)).toBe(true);
     expect(out.some((x) => x.date.startsWith('2025-02-02') && x.count === 1)).toBe(true);
