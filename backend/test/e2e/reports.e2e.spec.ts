@@ -1,3 +1,4 @@
+// test/e2e/reports.e2e.spec.ts
 import request from 'supertest';
 import { bootstrapE2E, registerUser } from './_helpers/e2e-utils';
 import { IncidentStatus, Severity } from '@prisma/client';
@@ -16,40 +17,43 @@ describe('Reports (e2e)', () => {
     const ctx = await bootstrapE2E();
 
     try {
-      const p: any = ctx.prisma as any;
-      for (const model of [
-        'incidentComment',
-        'incidentTimelineEvent',
-        'notificationSubscription',
-        'categoryOnIncident',
-        '_IncidentTags',
-        'incidentSource',
-        'cAPA',
-        'incident',
-        'service',
-        '_TeamMembers',
-        'team',
-        'user',
-        'tag',
-        'category',
-      ]) {
-        try {
-          if (p[model]?.deleteMany) await p[model].deleteMany({});
-        } catch {}
-      }
+      const uniq = Date.now();
 
       const { user, accessToken } = await registerUser(
         ctx.http,
-        'admin@x.com',
+        `admin+${uniq}@x.com`,
         'password123',
         'Admin',
       );
 
-      const team = await ctx.prisma.team.create({ data: { name: 'Ops' } });
-      const svc = await ctx.prisma.service.create({
-        data: { key: 'public-api', name: 'Public API', ownerTeamId: team.id },
+      const team = await ctx.prisma.team.create({
+        data: { name: `Ops-${uniq}` },
       });
-      const cat = await ctx.prisma.category.create({ data: { name: 'Network' } });
+
+      // MUITO IMPORTANTE: mete o user como membro da equipa (senão dá 403 no scoping)
+      await ctx.prisma.team.update({
+        where: { id: team.id },
+        data: { members: { connect: { id: user.id } } },
+      });
+
+      // ✅ name também tem unique -> tem de ser único no teste
+      const svc = await ctx.prisma.service.create({
+        data: {
+          key: `public-api-${uniq}`,
+          name: `Public API ${uniq}`,
+          ownerTeamId: team.id,
+        },
+      });
+
+      const cat = await ctx.prisma.category.create({
+        data: { name: `Network-${uniq}` },
+      });
+
+      const now = new Date();
+      const createdAt = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+      const resolvedAt = new Date(
+        now.getTime() - 2 * 24 * 60 * 60 * 1000 + 30 * 60 * 1000,
+      );
 
       const inc = await ctx.prisma.incident.create({
         data: {
@@ -60,8 +64,8 @@ describe('Reports (e2e)', () => {
           reporterId: user.id,
           teamId: team.id,
           primaryServiceId: svc.id,
-          createdAt: new Date('2025-01-01T00:00:00.000Z'),
-          resolvedAt: new Date('2025-01-01T00:30:00.000Z'),
+          createdAt,
+          resolvedAt,
         },
       });
 
@@ -69,13 +73,11 @@ describe('Reports (e2e)', () => {
         data: { incidentId: inc.id, categoryId: cat.id },
       });
 
-      // kpis
       await request(ctx.http)
         .get('/api/reports/kpis')
         .set('Authorization', `Bearer ${accessToken}`)
         .expect(200);
 
-      // breakdown
       const brRes = await request(ctx.http)
         .get('/api/reports/breakdown')
         .query({ groupBy: 'category' })
@@ -84,7 +86,6 @@ describe('Reports (e2e)', () => {
 
       expect(Array.isArray(brRes.body)).toBe(true);
 
-      // export csv
       const csvRes = await request(ctx.http)
         .get('/api/reports/export.csv')
         .set('Authorization', `Bearer ${accessToken}`)
@@ -93,7 +94,6 @@ describe('Reports (e2e)', () => {
       expect(csvRes.headers['content-type']).toContain('text/csv');
       expect(csvRes.text).toContain('Incident 1');
 
-      // export pdf (summary)
       const pdfRes = await request(ctx.http)
         .get('/api/reports/export.pdf')
         .set('Authorization', `Bearer ${accessToken}`)
@@ -105,7 +105,6 @@ describe('Reports (e2e)', () => {
       expect(Buffer.isBuffer(pdfRes.body)).toBe(true);
       expect(pdfRes.body.length).toBeGreaterThan(500);
 
-      // export pdf (incident audit)
       const pdfIncident = await request(ctx.http)
         .get('/api/reports/export.pdf')
         .query({ incidentId: inc.id })
@@ -116,7 +115,6 @@ describe('Reports (e2e)', () => {
 
       expect(pdfIncident.body.length).toBeGreaterThan(500);
 
-      // tamper: muda o título direto na DB (não atualiza auditHash)
       await ctx.prisma.incident.update({
         where: { id: inc.id },
         data: { title: 'TAMPERED' },
@@ -128,7 +126,6 @@ describe('Reports (e2e)', () => {
         .set('Authorization', `Bearer ${accessToken}`)
         .expect(409);
 
-      // auth required
       await request(ctx.http).get('/api/reports/kpis').expect(401);
     } finally {
       await ctx.app.close();
