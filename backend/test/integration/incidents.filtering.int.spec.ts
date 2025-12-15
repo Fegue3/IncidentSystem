@@ -1,3 +1,4 @@
+// test/integration/incidents.filtering.int.spec.ts
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../../src/app.module';
 import { PrismaService } from '../../src/prisma/prisma.service';
@@ -7,6 +8,7 @@ import { TeamsService } from '../../src/teams/teams.service';
 import { ServicesService } from '../../src/services/services.service';
 import { resetDb } from './_helpers/prisma-reset';
 import { Severity, IncidentStatus } from '@prisma/client';
+import { randomUUID } from 'crypto';
 
 describe('Incidents Filtering & Search (integration)', () => {
   let prisma: PrismaService;
@@ -46,8 +48,9 @@ describe('Incidents Filtering & Search (integration)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
 
-    // Setup: user, teams, services
-    const user = await users.create('filter@test.com', 'Pass1!', 'Filter Tester');
+    // Setup: user, teams, services (email único por teste)
+    const email = `filter+${randomUUID()}@test.com`;
+    const user = await users.create(email, 'Pass1!', 'Filter Tester');
     userId = user.id;
 
     const team1 = await teams.create({ name: 'SRE' } as any);
@@ -79,14 +82,14 @@ describe('Incidents Filtering & Search (integration)', () => {
           severity: Severity.SEV3,
           teamId: teamId1,
         },
-        userId
+        userId,
       );
 
       const result = await incidents.findAll({ status: IncidentStatus.NEW });
 
       expect(result.length).toBeGreaterThanOrEqual(1);
-      expect(result.some(i => i.status === IncidentStatus.NEW)).toBe(true);
-      expect(result.some(i => i.title === 'New Incident 1')).toBe(true);
+      expect(result.some((i) => i.status === IncidentStatus.NEW)).toBe(true);
+      expect(result.some((i) => i.title === 'New Incident 1')).toBe(true);
     });
   });
 
@@ -99,7 +102,7 @@ describe('Incidents Filtering & Search (integration)', () => {
           severity: Severity.SEV1,
           teamId: teamId1,
         },
-        userId
+        userId,
       );
 
       await incidents.create(
@@ -109,7 +112,7 @@ describe('Incidents Filtering & Search (integration)', () => {
           severity: Severity.SEV3,
           teamId: teamId1,
         },
-        userId
+        userId,
       );
 
       const result = await incidents.findAll({ severity: Severity.SEV1 });
@@ -127,7 +130,7 @@ describe('Incidents Filtering & Search (integration)', () => {
           severity: Severity.SEV2,
           teamId: teamId1,
         },
-        userId
+        userId,
       );
 
       const result = await incidents.findAll({ severity: Severity.SEV2 });
@@ -146,7 +149,7 @@ describe('Incidents Filtering & Search (integration)', () => {
           severity: Severity.SEV3,
           teamId: teamId1,
         },
-        userId
+        userId,
       );
 
       await incidents.create(
@@ -156,7 +159,7 @@ describe('Incidents Filtering & Search (integration)', () => {
           severity: Severity.SEV3,
           teamId: teamId2,
         },
-        userId
+        userId,
       );
 
       const result = await incidents.findAll({ teamId: teamId1 });
@@ -177,7 +180,7 @@ describe('Incidents Filtering & Search (integration)', () => {
           teamId: teamId1,
           primaryServiceId: serviceId1,
         },
-        userId
+        userId,
       );
 
       await incidents.create(
@@ -188,7 +191,7 @@ describe('Incidents Filtering & Search (integration)', () => {
           teamId: teamId1,
           primaryServiceId: serviceId2,
         },
-        userId
+        userId,
       );
 
       const result = await incidents.findAll({ primaryServiceId: serviceId1 });
@@ -207,7 +210,7 @@ describe('Incidents Filtering & Search (integration)', () => {
           teamId: teamId1,
           primaryServiceKey: 'postgres',
         },
-        userId
+        userId,
       );
 
       const result = await incidents.findAll({ primaryServiceKey: 'postgres' });
@@ -217,7 +220,9 @@ describe('Incidents Filtering & Search (integration)', () => {
     });
 
     it('deve retornar vazio se primaryServiceKey não existir', async () => {
-      const result = await incidents.findAll({ primaryServiceKey: 'nonexistent-service' });
+      const result = await incidents.findAll({
+        primaryServiceKey: 'nonexistent-service',
+      });
 
       expect(result).toEqual([]);
     });
@@ -232,7 +237,7 @@ describe('Incidents Filtering & Search (integration)', () => {
           severity: Severity.SEV1,
           teamId: teamId1,
         },
-        userId
+        userId,
       );
 
       await incidents.create(
@@ -242,7 +247,7 @@ describe('Incidents Filtering & Search (integration)', () => {
           severity: Severity.SEV2,
           teamId: teamId1,
         },
-        userId
+        userId,
       );
 
       const result = await incidents.findAll({ search: 'database' });
@@ -259,7 +264,7 @@ describe('Incidents Filtering & Search (integration)', () => {
           severity: Severity.SEV2,
           teamId: teamId1,
         },
-        userId
+        userId,
       );
 
       await incidents.create(
@@ -269,7 +274,7 @@ describe('Incidents Filtering & Search (integration)', () => {
           severity: Severity.SEV2,
           teamId: teamId1,
         },
-        userId
+        userId,
       );
 
       const result = await incidents.findAll({ search: 'postgres' });
@@ -286,7 +291,7 @@ describe('Incidents Filtering & Search (integration)', () => {
           severity: Severity.SEV1,
           teamId: teamId1,
         },
-        userId
+        userId,
       );
 
       const resultUpper = await incidents.findAll({ search: 'DATABASE' });
@@ -306,7 +311,7 @@ describe('Incidents Filtering & Search (integration)', () => {
           severity: Severity.SEV1,
           teamId: teamId1,
         },
-        userId
+        userId,
       );
 
       await incidents.create(
@@ -316,7 +321,7 @@ describe('Incidents Filtering & Search (integration)', () => {
           severity: Severity.SEV2,
           teamId: teamId1,
         },
-        userId
+        userId,
       );
 
       const result = await incidents.findAll({
@@ -338,7 +343,7 @@ describe('Incidents Filtering & Search (integration)', () => {
           teamId: teamId1,
           primaryServiceId: serviceId1,
         },
-        userId
+        userId,
       );
 
       await incidents.create(
@@ -349,7 +354,7 @@ describe('Incidents Filtering & Search (integration)', () => {
           teamId: teamId1,
           primaryServiceId: serviceId2,
         },
-        userId
+        userId,
       );
 
       const result = await incidents.findAll({
@@ -366,7 +371,6 @@ describe('Incidents Filtering & Search (integration)', () => {
   describe('Date range filtering', () => {
     it('deve filtrar por createdFrom (date range start)', async () => {
       const before = new Date('2020-01-01');
-      const now = new Date();
 
       await incidents.create(
         {
@@ -375,13 +379,15 @@ describe('Incidents Filtering & Search (integration)', () => {
           severity: Severity.SEV3,
           teamId: teamId1,
         },
-        userId
+        userId,
       );
 
       const result = await incidents.findAll({ createdFrom: before });
 
       expect(result.length).toBeGreaterThan(0);
-      expect(new Date(result[0].createdAt).getTime()).toBeGreaterThan(before.getTime());
+      expect(new Date(result[0].createdAt).getTime()).toBeGreaterThan(
+        before.getTime(),
+      );
     });
   });
 
@@ -394,10 +400,9 @@ describe('Incidents Filtering & Search (integration)', () => {
           severity: Severity.SEV3,
           teamId: teamId1,
         },
-        userId
+        userId,
       );
 
-      // Wait a bit
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       const inc2 = await incidents.create(
@@ -407,7 +412,7 @@ describe('Incidents Filtering & Search (integration)', () => {
           severity: Severity.SEV3,
           teamId: teamId1,
         },
-        userId
+        userId,
       );
 
       const result = await incidents.findAll({});

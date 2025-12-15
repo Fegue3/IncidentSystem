@@ -39,6 +39,25 @@ export function TeamsPage() {
 
         setTeams(data);
 
+        // Preferência inicial:
+        // 1) se estiver autenticado: usa a equipa real do backend (/teams/me)
+        // 2) se não: tenta localStorage (apenas UI)
+        if (user) {
+          try {
+            const mine = await TeamsAPI.listMine();
+            if (!active) return;
+
+            const mineId = mine?.[0]?.id ?? "";
+            if (mineId && data.some((t) => t.id === mineId)) {
+              setSelectedTeamId(mineId);
+              localStorage.setItem(TEAM_STORAGE_KEY, mineId);
+              return;
+            }
+          } catch {
+            // se falhar /teams/me, cai para localStorage
+          }
+        }
+
         const stored = localStorage.getItem(TEAM_STORAGE_KEY) ?? "";
         if (stored && data.some((t) => t.id === stored)) {
           setSelectedTeamId(stored);
@@ -59,7 +78,13 @@ export function TeamsPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [user?.id]);
+
+  async function refreshTeams() {
+    const data = await TeamsAPI.listAll();
+    setTeams(data);
+    return data;
+  }
 
   async function handleCreateTeam(e: React.FormEvent) {
     e.preventDefault();
@@ -89,12 +114,30 @@ export function TeamsPage() {
 
     try {
       if (selectedTeamId) {
+        // ✅ backend agora move o user (remove de outras equipas e adiciona nesta)
         await TeamsAPI.addMember(selectedTeamId, user.id);
         localStorage.setItem(TEAM_STORAGE_KEY, selectedTeamId);
         setSaveTeamMessage("Equipa atualizada com sucesso.");
       } else {
+        // Se escolher "Nenhuma equipa", remove o user de qualquer equipa (se houver)
+        const mine = await TeamsAPI.listMine();
+        await Promise.all(mine.map((t) => TeamsAPI.removeMember(t.id, user.id)));
+
         localStorage.removeItem(TEAM_STORAGE_KEY);
-        setSaveTeamMessage("Preferência de equipa limpa.");
+        setSaveTeamMessage("Equipa removida com sucesso.");
+      }
+
+      // Atualiza contagens (membersCount/incidentsCount) no UI
+      await refreshTeams();
+
+      // Re-sincroniza a seleção com o backend
+      try {
+        const mine = await TeamsAPI.listMine();
+        const mineId = mine?.[0]?.id ?? "";
+        setSelectedTeamId(mineId);
+        if (mineId) localStorage.setItem(TEAM_STORAGE_KEY, mineId);
+      } catch {
+        // ignora
       }
     } catch (e: unknown) {
       const msg =
@@ -106,7 +149,10 @@ export function TeamsPage() {
   }
 
   const saveMessageIsError =
-    !!saveTeamMessage && saveTeamMessage.toLowerCase().includes("não foi");
+    !!saveTeamMessage &&
+    (saveTeamMessage.toLowerCase().includes("não foi") ||
+      saveTeamMessage.toLowerCase().includes("erro") ||
+      saveTeamMessage.toLowerCase().includes("unauthorized"));
 
   return (
     <section className="teams">

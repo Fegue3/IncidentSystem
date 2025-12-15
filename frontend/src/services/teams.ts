@@ -61,6 +61,13 @@ export const TeamsAPI = {
     });
   },
 
+  removeMember: async (teamId: string, userId: string): Promise<void> => {
+    await api(`/teams/${teamId}/members/${userId}`, {
+      method: "DELETE",
+      auth: true,
+    });
+  },
+
   /**
    * NOVO: lista de membros de uma equipa (para escolher owner).
    * Usa o endpoint GET /teams/:id/members.

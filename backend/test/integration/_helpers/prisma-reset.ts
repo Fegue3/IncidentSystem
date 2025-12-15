@@ -1,31 +1,29 @@
 // test/integration/_helpers/prisma-reset.ts
-export async function resetDb(prisma: any) {
-  const safe = async (fn?: () => Promise<any>) => {
-    try {
-      if (fn) await fn();
-    } catch {
-      // ignore
-    }
-  };
+import type { PrismaClient } from '@prisma/client';
 
-  // --- INCIDENTS ---
-  await safe(() => prisma.incidentComment?.deleteMany({}));
-  await safe(() => prisma.incidentTimelineEvent?.deleteMany({}));
-  await safe(() => prisma.notificationSubscription?.deleteMany({}));
-  await safe(() => prisma.categoryOnIncident?.deleteMany({}));
-  await safe(() => prisma._IncidentTags?.deleteMany({}));
-  await safe(() => prisma.incidentSource?.deleteMany({}));
-  await safe(() => prisma.incident?.deleteMany({}));
+export async function resetDb(prisma: PrismaClient | any) {
+  // isto funciona tanto com PrismaClient como PrismaService
+  if (typeof prisma?.$executeRawUnsafe !== 'function') {
+    throw new Error('resetDb: prisma.$executeRawUnsafe não existe');
+  }
 
-  // --- SERVICES ---
-  await safe(() => prisma.service?.deleteMany({}));
+  await prisma.$executeRawUnsafe(`
+DO $$
+DECLARE
+  trunc_sql text;
+BEGIN
+  SELECT
+    'TRUNCATE TABLE ' ||
+    string_agg(format('%I.%I', schemaname, tablename), ', ') ||
+    ' RESTART IDENTITY CASCADE;'
+  INTO trunc_sql
+  FROM pg_tables
+  WHERE schemaname = 'public'
+    AND tablename <> '_prisma_migrations';
 
-  // --- TEAMS / USERS ---
-  await safe(() => prisma._TeamMembers?.deleteMany({}));
-  await safe(() => prisma.team?.deleteMany({}));
-  await safe(() => prisma.user?.deleteMany({}));
-
-  // --- CATEGORIES / TAGS ---
-  await safe(() => prisma.tag?.deleteMany({}));
-  await safe(() => prisma.category?.deleteMany({}));
+  IF trunc_sql IS NOT NULL THEN
+    EXECUTE trunc_sql;
+  END IF;
+END $$;
+  `);
 }
