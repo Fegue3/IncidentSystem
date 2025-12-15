@@ -11,6 +11,7 @@ import { IncidentCreatePage } from "../pages/Incidents/IncidentCreatePage";
 import { IncidentDetailsPage } from "../pages/Incidents/IncidentDetailsPage";
 import { TeamsPage } from "../pages/Teams/TeamsPage";
 import { IntegrationsPage } from "../pages/Integrations/IntegrationsPage";
+import { ReportsPage } from "../pages/Reports/ReportsPage";
 
 function PrivateRoute({ children }: { children: ReactNode }) {
   const { accessToken } = useAuth();
@@ -39,10 +40,11 @@ export default function AppRoutes() {
         }
       >
         <Route path="/" element={<HomePage />} />
-        <Route path="/about" element={<AboutPage />} />
-        <Route path="/integrations" element={<IntegrationsPage />} />
-        <Route path="/account" element={<AccountPage />} />
+        <Route path="/reports" element={<ReportsPage />} />
         <Route path="/teams" element={<TeamsPage />} />
+        <Route path="/integrations" element={<IntegrationsPage />} />
+        <Route path="/about" element={<AboutPage />} />
+        <Route path="/account" element={<AccountPage />} />
         <Route path="/incidents/new" element={<IncidentCreatePage />} />
         <Route path="/incidents/:id" element={<IncidentDetailsPage />} />
       </Route>
