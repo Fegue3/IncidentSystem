@@ -13,8 +13,8 @@ function safePart(s: string) {
   return s
     .trim()
     .slice(0, 80)
-    .replace(/[\\/:*?"<>|]+/g, '-')
-    .replace(/\s+/g, '-')
+    .replaceAll(/[\\/:*?"<>|]+/g, '-')
+    .replaceAll(/\s+/g, '-')
     .toLowerCase();
 }
 

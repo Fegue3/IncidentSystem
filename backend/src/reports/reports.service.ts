@@ -48,6 +48,21 @@ type ResolvedRange =
   | { mode: 'lifetime' }
   | { mode: 'range'; from: string; to: string };
 
+type TimelineEvent = {
+  createdAt: Date;
+  type: string;
+  message: string | null;
+  author?: { name: string | null; email: string } | null;
+};
+
+type SimpleComment = {
+  createdAt: Date;
+  authorLabel: string;
+  message: string;
+};
+
+type IncidentForPdf = any;
+
 @Injectable()
 export class ReportsService {
   constructor(private readonly prisma: PrismaService) { }
@@ -96,6 +111,17 @@ export class ReportsService {
     return myTeamId;
   }
 
+  private assertIncidentExportAllowed(
+    role: Role,
+    scopedTeamId: string | undefined,
+    incidentTeamId: string | null | undefined,
+  ) {
+    if (role === Role.ADMIN) return;
+    if (!scopedTeamId || incidentTeamId !== scopedTeamId) {
+      throw new ForbiddenException('You can only export incidents from your team');
+    }
+  }
+
   // -------------------------
   // Range helpers
   // -------------------------
@@ -139,7 +165,10 @@ export class ReportsService {
     );
   }
 
-  private lastNDaysRange(toIso?: string, days = 30): { from: string; to: string } {
+  private lastNDaysRange(
+    toIso?: string,
+    days = 30,
+  ): { from: string; to: string } {
     const to = toIso ? new Date(toIso) : new Date();
     const toStart = new Date(
       Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), to.getUTCDate(), 0, 0, 0, 0),
@@ -149,7 +178,7 @@ export class ReportsService {
     return { from: fromStart.toISOString(), to: toEnd.toISOString() };
   }
 
-  // >>> NOVO: resolve range (lifetime quando não há from/to)
+  // resolve range (lifetime quando não há from/to)
   private resolveRange(input: { from?: string; to?: string }): ResolvedRange {
     const hasFrom = !!(input.from && String(input.from).trim());
     const hasTo = !!(input.to && String(input.to).trim());
@@ -294,11 +323,29 @@ export class ReportsService {
     this.newPage(doc);
   }
 
+  private getTwoColumnLayout(doc: PdfDoc) {
+    const pageW =
+      doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    const gap = 18;
+    const rightW = Math.round(pageW * 0.38);
+    const leftW = pageW - rightW - gap;
+
+    const leftX = doc.page.margins.left;
+    const rightX = leftX + leftW + gap;
+
+    return { pageW, gap, leftX, leftW, rightX, rightW };
+  }
+
   // -------------------------
   // Sections / cards
   // -------------------------
 
-  private sectionTitle(doc: PdfDoc, title: string, width?: number, x?: number) {
+  private sectionTitle(
+    doc: PdfDoc,
+    title: string,
+    width?: number,
+    x?: number,
+  ) {
     const ix = x ?? doc.page.margins.left;
     const iw =
       width ?? doc.page.width - doc.page.margins.left - doc.page.margins.right;
@@ -318,7 +365,7 @@ export class ReportsService {
     doc.restore();
   }
 
-  // >>> NOVO: header "fixo" (não mexe no layout global de forma imprevisível)
+  // header fixo (não mexe no layout global de forma imprevisível)
   private drawSectionHeaderAt(
     doc: PdfDoc,
     title: string,
@@ -343,7 +390,7 @@ export class ReportsService {
     return lineY + 10; // content starts here
   }
 
-  // >>> NOVO: headers alinhados (Timeline à esquerda, Comentários à direita)
+  // headers alinhados (Timeline à esquerda, Comentários à direita)
   private twoColumnHeaders(
     doc: PdfDoc,
     leftTitle: string,
@@ -362,7 +409,7 @@ export class ReportsService {
     doc.y = Math.max(yLeft, yRight);
   }
 
-  // barras de cor menores e DENTRO do card
+  // barras de cor menores e dentro do card
   private metricCards(
     doc: PdfDoc,
     cards: { label: string; value: string; accent?: string }[],
@@ -410,10 +457,10 @@ export class ReportsService {
     maxHeight: number,
     opts?: any,
   ): { chunk: string; rest: string } {
-    const raw = String(text ?? '').replace(/\r\n/g, '\n');
+    const raw = String(text ?? '').replaceAll(/\r\n/g, '\n');
     if (!raw.trim()) return { chunk: '—', rest: '' };
 
-    if (doc.heightOfString(raw, { width, ...(opts ?? {}) }) <= maxHeight) {
+    if (doc.heightOfString(raw, { width, ...(opts) }) <= maxHeight) {
       return { chunk: raw, rest: '' };
     }
 
@@ -425,7 +472,7 @@ export class ReportsService {
     while (lo <= hi) {
       const mid = Math.floor((lo + hi) / 2);
       const cand = words.slice(0, mid).join(' ');
-      const h = doc.heightOfString(cand, { width, ...(opts ?? {}) });
+      const h = doc.heightOfString(cand, { width, ...(opts) });
       if (h <= maxHeight) {
         best = mid;
         lo = mid + 1;
@@ -448,7 +495,7 @@ export class ReportsService {
   ) {
     let remaining = String(text ?? '');
     if (!remaining.trim()) {
-      doc.text('—', x, doc.y, { width, ...(opts ?? {}) });
+      doc.text('—', x, doc.y, { width, ...(opts) });
       return;
     }
 
@@ -459,8 +506,14 @@ export class ReportsService {
         continue;
       }
 
-      const { chunk, rest } = this.takeFittingChunk(doc, remaining, width, maxH, opts);
-      doc.text(chunk, x, doc.y, { width, ...(opts ?? {}) });
+      const { chunk, rest } = this.takeFittingChunk(
+        doc,
+        remaining,
+        width,
+        maxH,
+        opts,
+      );
+      doc.text(chunk, x, doc.y, { width, ...(opts) });
       remaining = rest;
 
       if (remaining.trim().length > 0) {
@@ -477,8 +530,14 @@ export class ReportsService {
     maxHeight: number,
     opts?: any,
   ): { rest: string } {
-    const { chunk, rest } = this.takeFittingChunk(doc, text, width, maxHeight, opts);
-    doc.text(chunk, x, doc.y, { width, ...(opts ?? {}) });
+    const { chunk, rest } = this.takeFittingChunk(
+      doc,
+      text,
+      width,
+      maxHeight,
+      opts,
+    );
+    doc.text(chunk, x, doc.y, { width, ...(opts) });
     return { rest };
   }
 
@@ -517,7 +576,6 @@ export class ReportsService {
     return Math.max(1, rough);
   }
 
-  // >>> NOVO: ticks "normais" (0..max quando max é pequeno)
   private buildYTicks(max: number): number[] {
     const m = Math.max(1, Math.floor(max));
     if (m <= 12) return Array.from({ length: m + 1 }, (_, i) => i);
@@ -665,8 +723,10 @@ export class ReportsService {
 
     if (kind === 'STATUS') {
       if (msg.includes('IN_PROGRESS')) return COLORS.warningAmber;
-      if (msg.includes('RESOLVED') || msg.includes('CLOSED')) return COLORS.emeraldGreen;
-      if (msg.includes('TRIAGED') || msg.includes('NEW')) return COLORS.warmOrange;
+      if (msg.includes('RESOLVED') || msg.includes('CLOSED'))
+        return COLORS.emeraldGreen;
+      if (msg.includes('TRIAGED') || msg.includes('NEW'))
+        return COLORS.warmOrange;
       return COLORS.dangerRed;
     }
 
@@ -680,7 +740,8 @@ export class ReportsService {
     const s = (status ?? '').toUpperCase();
     if (s === 'RESOLVED') return { bg: '#DBF0E5', fg: COLORS.emeraldGreen };
     if (s === 'IN_PROGRESS') return { bg: '#FFF3D6', fg: COLORS.warningAmber };
-    if (s === 'TRIAGED' || s === 'NEW') return { bg: '#F3DECE', fg: COLORS.warmOrange };
+    if (s === 'TRIAGED' || s === 'NEW')
+      return { bg: '#F3DECE', fg: COLORS.warmOrange };
     if (s === 'REOPENED') return { bg: '#F1C9C9', fg: COLORS.dangerRed };
     return { bg: '#E0E4EA', fg: COLORS.deepNavy };
   }
@@ -699,7 +760,9 @@ export class ReportsService {
     const h = 16;
 
     doc.roundedRect(x, y, w, h, 8).fill(style.bg);
-    doc.fillColor(style.fg).text(text, x + padX, y + 3, { width: w - padX * 2 });
+    doc.fillColor(style.fg).text(text, x + padX, y + 3, {
+      width: w - padX * 2,
+    });
     doc.restore();
 
     return { w, h };
@@ -712,12 +775,7 @@ export class ReportsService {
       y: number;
       w: number;
       h: number;
-      events: {
-        createdAt: Date;
-        type: string;
-        message: string | null;
-        author?: { name: string | null; email: string } | null;
-      }[];
+      events: TimelineEvent[];
       startIndex: number;
     },
   ): { endIndex: number; usedHeight: number } {
@@ -802,26 +860,25 @@ export class ReportsService {
   // -------------------------
 
   private normalizeCommentText(c: any): string {
-    return String(c?.message ?? c?.content ?? c?.text ?? c?.body ?? '—');
+    const raw = String(c?.message ?? c?.content ?? c?.text ?? c?.body ?? '');
+    return raw.trim() ? raw : '—';
   }
 
   private pickAuthorLabel(u: any): string {
     if (!u) return '—';
     const name = String(u?.name ?? '').trim();
-    return name ? name : String(u?.email ?? '—');
+    const email = String(u?.email ?? '').trim();
+    return name || email || '—';
   }
 
-  private dedupComments(
-    comments: { createdAt: Date; authorLabel: string; message: string }[],
-  ) {
+  private dedupComments(comments: SimpleComment[]) {
     const seen = new Set<string>();
-    const out: typeof comments = [];
+    const out: SimpleComment[] = [];
     for (const c of comments) {
       const key =
-        `${new Date(c.createdAt).toISOString()}|${c.authorLabel}|${String(c.message ?? '')}`.slice(
-          0,
-          600,
-        );
+        `${new Date(c.createdAt).toISOString()}|${c.authorLabel}|${String(
+          c.message ?? '',
+        )}`.slice(0, 600);
       if (seen.has(key)) continue;
       seen.add(key);
       out.push(c);
@@ -836,7 +893,7 @@ export class ReportsService {
       y: number;
       w: number;
       h: number;
-      comments: { createdAt: Date; authorLabel: string; message: string }[];
+      comments: SimpleComment[];
       startIndex: number;
     },
   ): { endIndex: number; usedHeight: number } {
@@ -886,7 +943,10 @@ export class ReportsService {
     const remaining = comments.length - i;
     if (remaining > 0 && cy + 10 < maxY) {
       doc.fillColor('rgba(27,42,65,0.65)').font('Helvetica').fontSize(9);
-      doc.text(`… +${remaining} comentário(s)`, x, maxY - 12, { width: w, align: 'right' });
+      doc.text(`… +${remaining} comentário(s)`, x, maxY - 12, {
+        width: w,
+        align: 'right',
+      });
     }
 
     doc.restore();
@@ -1062,12 +1122,16 @@ export class ReportsService {
         })
         : [];
 
-      const map = new Map(users.map((u) => [u.id, u.name?.trim() ? u.name : u.email]));
+      const map = new Map(
+        users.map((u) => [u.id, u.name?.trim() ? u.name : u.email]),
+      );
 
       return rows
         .map((r) => ({
           key: r.assigneeId ?? 'none',
-          label: r.assigneeId ? map.get(r.assigneeId) ?? r.assigneeId : 'Sem responsável',
+          label: r.assigneeId
+            ? map.get(r.assigneeId) ?? r.assigneeId
+            : 'Sem responsável',
           count: r._count._all,
         }))
         .sort((a, b) => b.count - a.count);
@@ -1119,7 +1183,9 @@ export class ReportsService {
       return rows
         .map((r) => ({
           key: r.primaryServiceId ?? 'none',
-          label: r.primaryServiceId ? map.get(r.primaryServiceId) ?? r.primaryServiceId : 'Sem serviço',
+          label: r.primaryServiceId
+            ? map.get(r.primaryServiceId) ?? r.primaryServiceId
+            : 'Sem serviço',
           count: r._count._all,
         }))
         .sort((a, b) => b.count - a.count);
@@ -1209,8 +1275,34 @@ export class ReportsService {
             ? String(value)
             : JSON.stringify(value);
 
-    if (/[",\r\n]/.test(raw)) return `"${raw.replace(/"/g, '""')}"`;
+    if (/[",\r\n]/.test(raw)) return `"${raw.replaceAll(/"/g, '""')}"`;
     return raw;
+  }
+
+  private userLabel(
+    u: { name?: string | null; email?: string | null } | null | undefined,
+  ): string {
+    const name = u?.name?.trim();
+    return name ? name : u?.email?.trim() ? (u!.email as string) : '';
+  }
+
+  private computeMttrSeconds(
+    createdAt: Date,
+    resolvedAt: Date | null | undefined,
+  ): number | null {
+    if (!resolvedAt) return null;
+    return Math.max(
+      0,
+      Math.floor((resolvedAt.getTime() - createdAt.getTime()) / 1000),
+    );
+  }
+
+  private computeSlaMet(
+    mttrSeconds: number | null,
+    slaTarget: number,
+  ): boolean | null {
+    if (mttrSeconds === null) return null;
+    return mttrSeconds <= slaTarget;
   }
 
   async exportCsv(
@@ -1224,7 +1316,7 @@ export class ReportsService {
     },
     auth?: JwtUserLike,
   ) {
-    // >>> ALTERADO: nada de clamp; se não vier range => lifetime (sem createdAt filter)
+    // sem clamp; se não vier range => lifetime (sem createdAt filter)
     const scopedTeamId = await this.resolveTeamScope(auth, input.teamId);
     const where = this.buildIncidentWhere({ ...input, teamId: scopedTeamId });
 
@@ -1239,7 +1331,9 @@ export class ReportsService {
         assignee: { select: { id: true, name: true, email: true } },
         team: { select: { id: true, name: true } },
         primaryService: { select: { id: true, name: true, key: true } },
-        categories: { include: { category: { select: { id: true, name: true } } } },
+        categories: {
+          include: { category: { select: { id: true, name: true } } },
+        },
         tags: { select: { label: true } },
         _count: { select: { capas: true } },
       },
@@ -1274,33 +1368,21 @@ export class ReportsService {
         .filter(Boolean)
         .join(';');
 
-      const tags = (inc.tags ?? []).map((t: any) => t.label).filter(Boolean).join(';');
+      const tags = (inc.tags ?? [])
+        .map((t: any) => t.label)
+        .filter(Boolean)
+        .join(';');
 
-      const assigneeLabel = inc.assignee
-        ? inc.assignee.name?.trim()
-          ? inc.assignee.name
-          : inc.assignee.email
-        : '';
-      const reporterLabel = inc.reporter
-        ? inc.reporter.name?.trim()
-          ? inc.reporter.name
-          : inc.reporter.email
-        : '';
+      const assigneeLabel = this.userLabel(inc.assignee);
+      const reporterLabel = this.userLabel(inc.reporter);
 
       const teamLabel = inc.team?.name ?? '';
       const serviceLabel = inc.primaryService?.name ?? inc.primaryService?.key ?? '';
 
-      const mttrSeconds = inc.resolvedAt
-        ? Math.max(
-          0,
-          Math.floor(
-            (new Date(inc.resolvedAt).getTime() - new Date(inc.createdAt).getTime()) / 1000,
-          ),
-        )
-        : null;
+      const mttrSeconds = this.computeMttrSeconds(inc.createdAt, inc.resolvedAt);
 
       const slaTarget = this.slaTargetSeconds(inc.severity);
-      const slaMet = mttrSeconds === null ? null : mttrSeconds <= slaTarget;
+      const slaMet = this.computeSlaMet(mttrSeconds, slaTarget);
 
       lines.push(
         [
@@ -1346,10 +1428,26 @@ export class ReportsService {
     doc.roundedRect(x, y, w, h, 14).fill(COLORS.offWhite);
 
     const rows = [
-      { sev: 'SEV1', t: this.humanSeconds(this.slaTargetSeconds(Severity.SEV1)), color: COLORS.dangerRed },
-      { sev: 'SEV2', t: this.humanSeconds(this.slaTargetSeconds(Severity.SEV2)), color: COLORS.warmOrange },
-      { sev: 'SEV3', t: this.humanSeconds(this.slaTargetSeconds(Severity.SEV3)), color: COLORS.sapphireBlue },
-      { sev: 'SEV4', t: this.humanSeconds(this.slaTargetSeconds(Severity.SEV4)), color: 'rgba(27,42,65,0.55)' },
+      {
+        sev: 'SEV1',
+        t: this.humanSeconds(this.slaTargetSeconds(Severity.SEV1)),
+        color: COLORS.dangerRed,
+      },
+      {
+        sev: 'SEV2',
+        t: this.humanSeconds(this.slaTargetSeconds(Severity.SEV2)),
+        color: COLORS.warmOrange,
+      },
+      {
+        sev: 'SEV3',
+        t: this.humanSeconds(this.slaTargetSeconds(Severity.SEV3)),
+        color: COLORS.sapphireBlue,
+      },
+      {
+        sev: 'SEV4',
+        t: this.humanSeconds(this.slaTargetSeconds(Severity.SEV4)),
+        color: 'rgba(27,42,65,0.55)',
+      },
     ];
 
     const colGap = 12;
@@ -1389,7 +1487,6 @@ export class ReportsService {
     return { total, avg, peak, peakDate };
   }
 
-  // >>> ALTERADO: label dinâmico (lifetime ou range)
   private drawQuickStatsBox(
     doc: PdfDoc,
     stats: { total: number; avg: number; peak: number; peakDate: string | null },
@@ -1408,11 +1505,14 @@ export class ReportsService {
     doc.roundedRect(x, y, w, h, 14).fill(COLORS.offWhite);
 
     doc.fillColor(COLORS.deepNavy).font('Helvetica-Bold').fontSize(11);
-    doc.text(`Total (${rangeLabel}): ${stats.total}`, x + 14, y + 14, { width: w - 28 });
+    doc.text(`Total (${rangeLabel}): ${stats.total}`, x + 14, y + 14, {
+      width: w - 28,
+    });
 
     doc.fillColor('rgba(27,42,65,0.70)').font('Helvetica').fontSize(10);
     doc.text(
-      `Média/dia: ${stats.avg.toFixed(2)}   •   Pico: ${stats.peak} (${stats.peakDate ? this.fmtShortDate(stats.peakDate) : '—'})`,
+      `Média/dia: ${stats.avg.toFixed(2)}   •   Pico: ${stats.peak} (${stats.peakDate ? this.fmtShortDate(stats.peakDate) : '—'
+      })`,
       x + 14,
       y + 34,
       { width: w - 28 },
@@ -1423,7 +1523,317 @@ export class ReportsService {
   }
 
   // -------------------------
-  // PDF export
+  // Incident rendering helpers
+  // -------------------------
+
+  private buildEventsAndMergedComments(inc: IncidentForPdf): {
+    events: TimelineEvent[];
+    mergedComments: SimpleComment[];
+  } {
+    const events: TimelineEvent[] =
+      (inc.timeline ?? []).map((e: any) => ({
+        createdAt: e.createdAt,
+        type: e.type,
+        message: e.message,
+        author: e.author ? { name: e.author.name, email: e.author.email } : null,
+      })) ?? [];
+
+    const timelineComments: SimpleComment[] =
+      (inc.timeline ?? [])
+        .filter((e: any) => this.timelineKind(e.type) === 'COMMENT')
+        .map((e: any) => ({
+          createdAt: e.createdAt,
+          authorLabel: this.pickAuthorLabel(e.author),
+          message: String(e.message ?? '—'),
+        })) ?? [];
+
+    const tableComments: SimpleComment[] =
+      (inc.comments ?? []).map((c: any) => ({
+        createdAt: c.createdAt,
+        authorLabel: this.pickAuthorLabel(c.author),
+        message: this.normalizeCommentText(c),
+      })) ?? [];
+
+    const mergedComments = this.dedupComments(
+      [...tableComments, ...timelineComments].sort(
+        (a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      ),
+    );
+
+    return { events, mergedComments };
+  }
+
+  private renderIncidentTitleAndKpis(doc: PdfDoc, inc: IncidentForPdf) {
+    doc.font('Helvetica');
+
+    doc.fillColor(COLORS.deepNavy).font('Helvetica-Bold').fontSize(18);
+    doc.text(inc.title ?? '—', doc.page.margins.left, doc.y, {
+      width: doc.page.width - doc.page.margins.left - doc.page.margins.right,
+    });
+
+    doc.fillColor('rgba(27,42,65,0.65)').font('Helvetica').fontSize(10);
+    doc.text(`ID: ${inc.id}`);
+    doc.moveDown(0.4);
+
+    const mttrSeconds = this.computeMttrSeconds(
+      new Date(inc.createdAt),
+      inc.resolvedAt ? new Date(inc.resolvedAt) : null,
+    );
+
+    const slaTarget = this.slaTargetSeconds(inc.severity);
+    const slaMet = this.computeSlaMet(mttrSeconds, slaTarget);
+
+    this.metricCards(doc, [
+      { label: 'Severity', value: String(inc.severity), accent: COLORS.warmOrange },
+      { label: 'Status', value: String(inc.status), accent: COLORS.sapphireBlue },
+      {
+        label: 'SLA',
+        value: slaMet == null ? '—' : slaMet ? 'OK' : 'FAIL',
+        accent: slaMet ? COLORS.emeraldGreen : COLORS.dangerRed,
+      },
+    ]);
+
+    return { mttrSeconds, slaTarget, slaMet };
+  }
+
+  private renderDetailsAndDescriptionTwoColumns(
+    doc: PdfDoc,
+    inc: IncidentForPdf,
+    mttrSeconds: number | null,
+    slaTarget: number,
+  ) {
+    const { pageW, leftX, leftW, rightX, rightW } = this.getTwoColumnLayout(doc);
+
+    const y0 = doc.y;
+
+    // Detalhes (esquerda)
+    doc.y = y0;
+    this.sectionTitle(doc, 'Detalhes', leftW, leftX);
+
+    const team = inc.team?.name ?? '—';
+    const owner = inc.assignee ? this.pickAuthorLabel(inc.assignee) : '—';
+    const reporter = inc.reporter ? this.pickAuthorLabel(inc.reporter) : '—';
+
+    doc.fillColor(COLORS.deepNavy).font('Helvetica').fontSize(10);
+    doc.text(`Equipa: ${team}`, leftX, doc.y, { width: leftW });
+    doc.text(`Responsável: ${owner}`, leftX, doc.y, { width: leftW });
+    doc.text(`Reporter: ${reporter}`, leftX, doc.y, { width: leftW });
+    doc.text(`Criado: ${this.fmtDateTime(inc.createdAt)}`, leftX, doc.y, {
+      width: leftW,
+    });
+    doc.text(`Resolvido: ${this.fmtDateTime(inc.resolvedAt)}`, leftX, doc.y, {
+      width: leftW,
+    });
+    doc.text(
+      `MTTR: ${this.humanSeconds(mttrSeconds)}   |   SLA Target: ${this.humanHoursFromSeconds(
+        slaTarget,
+      )}`,
+      leftX,
+      doc.y,
+      { width: leftW },
+    );
+    const yLeftEnd = doc.y;
+
+    // Descrição (direita)
+    doc.y = y0;
+    this.sectionTitle(doc, 'Descrição', rightW, rightX);
+    doc.fillColor(COLORS.deepNavy).font('Helvetica').fontSize(10);
+
+    const descStartY = doc.y;
+    const maxDescH = this.pageBottom(doc) - descStartY - 10;
+
+    const { rest: remainingDesc } = this.writeTextFittingOnce(
+      doc,
+      inc.description ?? '—',
+      rightX,
+      rightW,
+      Math.max(40, maxDescH),
+      { width: rightW },
+    );
+    const yRightEnd = doc.y;
+
+    doc.y = Math.max(yLeftEnd, yRightEnd) + 8;
+
+    // Se a descrição não coube, continua em full width
+    if (remainingDesc && remainingDesc.trim().length > 0) {
+      this.sectionTitle(doc, 'Descrição', pageW, leftX);
+      doc.fillColor(COLORS.deepNavy).font('Helvetica').fontSize(10);
+      this.writeTextPaged(doc, remainingDesc, leftX, pageW, { width: pageW });
+    }
+
+    return { leftX, leftW, rightX, rightW };
+  }
+
+  private renderTimelineAndCommentsTwoColumns(
+    doc: PdfDoc,
+    layout: { leftX: number; leftW: number; rightX: number; rightW: number },
+    events: TimelineEvent[],
+    mergedComments: SimpleComment[],
+  ) {
+    const { leftX, leftW, rightX, rightW } = layout;
+
+    let evIndex = 0;
+    let cIndex = 0;
+
+    this.twoColumnHeaders(doc, 'Timeline', 'Comentários', leftX, leftW, rightX, rightW);
+
+    while (evIndex < events.length || cIndex < mergedComments.length) {
+      const topY = doc.y;
+      const availableH = this.pageBottom(doc) - topY;
+
+      if (availableH < 140) {
+        this.newPage(doc);
+        this.twoColumnHeaders(doc, 'Timeline', 'Comentários', leftX, leftW, rightX, rightW);
+        continue;
+      }
+
+      const tl = this.drawTimelinePaged(doc, {
+        x: leftX,
+        y: topY,
+        w: leftW,
+        h: availableH,
+        events,
+        startIndex: evIndex,
+      });
+
+      const commentsH = Math.min(availableH, Math.max(180, tl.usedHeight || 180));
+      const cm = this.drawCommentsPlainPaged(doc, {
+        x: rightX,
+        y: topY,
+        w: rightW,
+        h: commentsH,
+        comments: mergedComments,
+        startIndex: cIndex,
+      });
+
+      const progressed = tl.endIndex > evIndex || cm.endIndex > cIndex;
+      evIndex = tl.endIndex;
+      cIndex = cm.endIndex;
+
+      const used = Math.max(tl.usedHeight, commentsH);
+      doc.y = topY + used;
+
+      if (evIndex < events.length || cIndex < mergedComments.length) {
+        // fallback anti-loop-infinito se nada progride
+        if (!progressed && cIndex < mergedComments.length) cIndex++;
+        this.newPage(doc);
+        this.twoColumnHeaders(doc, 'Timeline', 'Comentários', leftX, leftW, rightX, rightW);
+      }
+    }
+  }
+
+  private async verifyIncidentAuditOrThrow(
+    incidentId: string,
+    currentAuditHash: string | null | undefined,
+    secret: string,
+  ) {
+    if (!currentAuditHash) {
+      await ensureIncidentAuditHash(this.prisma as any, incidentId, secret);
+      // não recarrego o incidente para manter igual ao teu fluxo (sem efeitos colaterais de include)
+      return;
+    }
+
+    const { hash: computed } = await computeIncidentAuditHash(
+      this.prisma as any,
+      incidentId,
+      secret,
+    );
+
+    if (computed !== currentAuditHash) {
+      await this.prisma.incidentTimelineEvent.create({
+        data: {
+          incidentId,
+          type: TimelineEventType.FIELD_UPDATE,
+          message:
+            'ALERT: Integrity check failed (audit hash mismatch) during PDF export attempt.',
+          authorId: null,
+        },
+      });
+      throw new ConflictException('Integrity check failed. PDF export blocked.');
+    }
+  }
+
+  // -------------------------
+  // Report range helpers
+  // -------------------------
+
+  private async resolveReportRangeAndLabels(
+    input: {
+      from?: string;
+      to?: string;
+      teamId?: string;
+      serviceId?: string;
+      severity?: Severity;
+    },
+    scopedTeamId: string | undefined,
+  ): Promise<{
+    resolved: ResolvedRange;
+    effectiveInput: any;
+    chartRange: { from: string; to: string };
+    rangeLabelCard: string;
+    headerPeriodLine: string;
+  }> {
+    const resolved = this.resolveRange(input);
+
+    const effectiveInput =
+      resolved.mode === 'range'
+        ? { ...input, teamId: scopedTeamId, from: resolved.from, to: resolved.to }
+        : { ...input, teamId: scopedTeamId };
+
+    // se for lifetime, o chart precisa de um range real (min/max) para preencher dias.
+    let chartRange: { from: string; to: string };
+    let rangeLabelCard = 'Lifetime';
+    let headerPeriodLine = 'Período: Lifetime';
+
+    if (resolved.mode === 'range') {
+      chartRange = { from: resolved.from, to: resolved.to };
+      rangeLabelCard = `${this.fmtShortDate(resolved.from)} → ${this.fmtShortDate(
+        resolved.to,
+      )}`;
+      headerPeriodLine = `Período: ${this.fmtDateTime(resolved.from)}  |  ${this.fmtDateTime(
+        resolved.to,
+      )}`;
+      return { resolved, effectiveInput, chartRange, rangeLabelCard, headerPeriodLine };
+    }
+
+    const whereNoDates = this.buildIncidentWhere({
+      teamId: scopedTeamId,
+      serviceId: input.serviceId,
+      severity: input.severity,
+    });
+
+    const agg = await this.prisma.incident.aggregate({
+      where: whereNoDates,
+      _min: { createdAt: true },
+      _max: { createdAt: true },
+    });
+
+    const min = agg._min?.createdAt ?? null;
+    const max = agg._max?.createdAt ?? null;
+
+    if (min && max) {
+      chartRange = {
+        from: this.startOfDayUTC(min.toISOString()).toISOString(),
+        to: this.endOfDayUTC(max.toISOString()).toISOString(),
+      };
+      headerPeriodLine = `Período (lifetime): ${this.fmtDateTime(min)}  |  ${this.fmtDateTime(
+        max,
+      )}`;
+      rangeLabelCard = 'Lifetime';
+    } else {
+      // sem dados => fallback visual
+      const fallback = this.lastNDaysRange(undefined, 30);
+      chartRange = fallback;
+      headerPeriodLine = 'Período: Lifetime';
+      rangeLabelCard = 'Lifetime';
+    }
+
+    return { resolved, effectiveInput, chartRange, rangeLabelCard, headerPeriodLine };
+  }
+
+  // -------------------------
+  // PDF export (refactor: baixa complexidade aqui)
   // -------------------------
 
   async exportPdf(
@@ -1440,282 +1850,105 @@ export class ReportsService {
     const secret = process.env.AUDIT_HMAC_SECRET;
     const role = auth ? this.getAuthRole(auth) : Role.ADMIN;
 
-    // -------------------------
-    // PDF de 1 incidente
-    // -------------------------
     if (input.incidentId) {
-      const scopedTeamId = await this.resolveTeamScope(auth, input.teamId);
+      return this.exportSingleIncidentPdf(input, auth, role, secret);
+    }
 
-      const incident = await this.prisma.incident.findUnique({
-        where: { id: input.incidentId },
-        include: {
-          reporter: { select: { id: true, name: true, email: true } },
-          assignee: { select: { id: true, name: true, email: true } },
-          team: { select: { id: true, name: true } },
-          primaryService: { select: { id: true, name: true, key: true } },
-          timeline: {
-            orderBy: { createdAt: 'asc' },
-            include: { author: { select: { name: true, email: true } } },
-          },
-          comments: {
-            orderBy: { createdAt: 'asc' },
-            include: { author: { select: { name: true, email: true } } },
-          },
-          capas: { take: 1 },
+    return this.exportReportPdf(input, auth, role, secret);
+  }
+
+  // -------------------------
+  // PDF: single incident
+  // -------------------------
+
+  private async exportSingleIncidentPdf(
+    input: {
+      from?: string;
+      to?: string;
+      teamId?: string;
+      serviceId?: string;
+      severity?: Severity;
+      incidentId?: string;
+    },
+    auth: JwtUserLike | undefined,
+    role: Role,
+    secret: string | undefined,
+  ): Promise<Buffer> {
+    const scopedTeamId = await this.resolveTeamScope(auth, input.teamId);
+
+    const incident = await this.prisma.incident.findUnique({
+      where: { id: input.incidentId as string },
+      include: {
+        reporter: { select: { id: true, name: true, email: true } },
+        assignee: { select: { id: true, name: true, email: true } },
+        team: { select: { id: true, name: true } },
+        primaryService: { select: { id: true, name: true, key: true } },
+        timeline: {
+          orderBy: { createdAt: 'asc' },
+          include: { author: { select: { name: true, email: true } } },
         },
-      });
+        comments: {
+          orderBy: { createdAt: 'asc' },
+          include: { author: { select: { name: true, email: true } } },
+        },
+        capas: { take: 1 },
+      },
+    });
 
-      if (!incident) throw new NotFoundException('Incident not found');
+    if (!incident) throw new NotFoundException('Incident not found');
 
-      if (role !== Role.ADMIN) {
-        if (!scopedTeamId || incident.teamId !== scopedTeamId) {
-          throw new ForbiddenException('You can only export incidents from your team');
-        }
-      }
+    this.assertIncidentExportAllowed(role, scopedTeamId, incident.teamId);
 
-      if (!incident.auditHash && secret) {
-        await ensureIncidentAuditHash(this.prisma as any, incident.id, secret);
-      }
-      if (secret && incident.auditHash) {
-        const { hash: computed } = await computeIncidentAuditHash(
-          this.prisma as any,
-          incident.id,
-          secret,
-        );
-        if (computed !== incident.auditHash) {
-          await this.prisma.incidentTimelineEvent.create({
-            data: {
-              incidentId: incident.id,
-              type: TimelineEventType.FIELD_UPDATE,
-              message:
-                'ALERT: Integrity check failed (audit hash mismatch) during PDF export attempt.',
-              authorId: null,
-            },
-          });
-          throw new ConflictException('Integrity check failed. PDF export blocked.');
-        }
-      }
+    if (secret) {
+      await this.verifyIncidentAuditOrThrow(incident.id, incident.auditHash, secret);
+    }
 
-      const timelineComments =
-        (incident.timeline ?? [])
-          .filter((e: any) => this.timelineKind(e.type) === 'COMMENT')
-          .map((e: any) => ({
-            createdAt: e.createdAt,
-            authorLabel: this.pickAuthorLabel(e.author),
-            message: String(e.message ?? '—'),
-          })) ?? [];
+    const { events, mergedComments } = this.buildEventsAndMergedComments(incident);
 
-      const tableComments =
-        (incident.comments ?? []).map((c: any) => ({
-          createdAt: c.createdAt,
-          authorLabel: this.pickAuthorLabel(c.author),
-          message: this.normalizeCommentText(c),
-        })) ?? [];
-
-      const mergedComments = this.dedupComments(
-        [...tableComments, ...timelineComments].sort(
-          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-        ),
+    return this.pdfToBuffer((doc) => {
+      const { mttrSeconds, slaTarget } = this.renderIncidentTitleAndKpis(doc, incident);
+      const layout = this.renderDetailsAndDescriptionTwoColumns(
+        doc,
+        incident,
+        mttrSeconds,
+        slaTarget,
       );
 
-      const events =
-        (incident.timeline ?? []).map((e: any) => ({
-          createdAt: e.createdAt,
-          type: e.type,
-          message: e.message,
-          author: e.author ? { name: e.author.name, email: e.author.email } : null,
-        })) ?? [];
+      this.renderTimelineAndCommentsTwoColumns(doc, layout, events, mergedComments);
 
-      return this.pdfToBuffer((doc) => {
-        doc.font('Helvetica');
-
-        doc.fillColor(COLORS.deepNavy).font('Helvetica-Bold').fontSize(18);
-        doc.text(incident.title ?? '—', doc.page.margins.left, doc.y, {
-          width: doc.page.width - doc.page.margins.left - doc.page.margins.right,
+      if (secret && incident.auditHash) {
+        this.sectionTitle(doc, 'Audit', layout.leftW, layout.leftX);
+        doc.fillColor('rgba(27,42,65,0.65)').font('Helvetica').fontSize(9);
+        doc.text(`Audit hash: ${incident.auditHash}`, layout.leftX, doc.y, {
+          width: layout.leftW,
         });
+      }
+    });
+  }
 
-        doc.fillColor('rgba(27,42,65,0.65)').font('Helvetica').fontSize(10);
-        doc.text(`ID: ${incident.id}`);
-        doc.moveDown(0.4);
+  // -------------------------
+  // PDF: report
+  // -------------------------
 
-        const mttrSeconds = incident.resolvedAt
-          ? Math.max(
-            0,
-            Math.floor((incident.resolvedAt.getTime() - incident.createdAt.getTime()) / 1000),
-          )
-          : null;
-
-        const slaTarget = this.slaTargetSeconds(incident.severity);
-        const slaMet = mttrSeconds === null ? null : mttrSeconds <= slaTarget;
-
-        this.metricCards(doc, [
-          { label: 'Severity', value: String(incident.severity), accent: COLORS.warmOrange },
-          { label: 'Status', value: String(incident.status), accent: COLORS.sapphireBlue },
-          { label: 'SLA', value: slaMet == null ? '—' : slaMet ? 'OK' : 'FAIL', accent: slaMet ? COLORS.emeraldGreen : COLORS.dangerRed },
-        ]);
-
-        const pageW = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-        const gap = 18;
-        const rightW = Math.round(pageW * 0.38);
-        const leftW = pageW - rightW - gap;
-
-        const leftX = doc.page.margins.left;
-        const rightX = leftX + leftW + gap;
-
-        const y0 = doc.y;
-
-        doc.y = y0;
-        this.sectionTitle(doc, 'Detalhes', leftW, leftX);
-
-        const team = incident.team?.name ?? '—';
-        const owner = incident.assignee ? this.pickAuthorLabel(incident.assignee) : '—';
-        const reporter = incident.reporter ? this.pickAuthorLabel(incident.reporter) : '—';
-
-        doc.fillColor(COLORS.deepNavy).font('Helvetica').fontSize(10);
-        doc.text(`Equipa: ${team}`, leftX, doc.y, { width: leftW });
-        doc.text(`Responsável: ${owner}`, leftX, doc.y, { width: leftW });
-        doc.text(`Reporter: ${reporter}`, leftX, doc.y, { width: leftW });
-        doc.text(`Criado: ${this.fmtDateTime(incident.createdAt)}`, leftX, doc.y, { width: leftW });
-        doc.text(`Resolvido: ${this.fmtDateTime(incident.resolvedAt)}`, leftX, doc.y, { width: leftW });
-        doc.text(`MTTR: ${this.humanSeconds(mttrSeconds)}   |   SLA Target: ${this.humanHoursFromSeconds(slaTarget)}`, leftX, doc.y, { width: leftW });
-        const yLeftEnd = doc.y;
-
-        doc.y = y0;
-        this.sectionTitle(doc, 'Descrição', rightW, rightX);
-        doc.fillColor(COLORS.deepNavy).font('Helvetica').fontSize(10);
-
-        const descStartY = doc.y;
-        const maxDescH = this.pageBottom(doc) - descStartY - 10;
-        const { rest: remainingDesc } = this.writeTextFittingOnce(
-          doc,
-          incident.description ?? '—',
-          rightX,
-          rightW,
-          Math.max(40, maxDescH),
-          { width: rightW },
-        );
-        const yRightEnd = doc.y;
-
-        doc.y = Math.max(yLeftEnd, yRightEnd) + 8;
-
-        if (remainingDesc && remainingDesc.trim().length > 0) {
-          this.sectionTitle(doc, 'Descrição', pageW, leftX);
-          doc.fillColor(COLORS.deepNavy).font('Helvetica').fontSize(10);
-          this.writeTextPaged(doc, remainingDesc, leftX, pageW, { width: pageW });
-        }
-
-        let evIndex = 0;
-        let cIndex = 0;
-
-        this.twoColumnHeaders(doc, 'Timeline', 'Comentários', leftX, leftW, rightX, rightW);
-
-        while (evIndex < events.length || cIndex < mergedComments.length) {
-          const topY = doc.y;
-          const availableH = this.pageBottom(doc) - topY;
-
-          if (availableH < 140) {
-            this.newPage(doc);
-            this.twoColumnHeaders(doc, 'Timeline', 'Comentários', leftX, leftW, rightX, rightW);
-            continue;
-          }
-
-          const tl = this.drawTimelinePaged(doc, {
-            x: leftX,
-            y: topY,
-            w: leftW,
-            h: availableH,
-            events,
-            startIndex: evIndex,
-          });
-
-          const cm = this.drawCommentsPlainPaged(doc, {
-            x: rightX,
-            y: topY,
-            w: rightW,
-            h: Math.min(availableH, Math.max(180, tl.usedHeight || 180)),
-            comments: mergedComments,
-            startIndex: cIndex,
-          });
-
-          const progressed = tl.endIndex > evIndex || cm.endIndex > cIndex;
-          evIndex = tl.endIndex;
-          cIndex = cm.endIndex;
-
-          const used = Math.max(
-            tl.usedHeight,
-            Math.min(availableH, Math.max(180, tl.usedHeight || 180)),
-          );
-          doc.y = topY + used;
-
-          if (evIndex < events.length || cIndex < mergedComments.length) {
-            if (!progressed && cIndex < mergedComments.length) cIndex++;
-            this.newPage(doc);
-            this.twoColumnHeaders(doc, 'Timeline', 'Comentários', leftX, leftW, rightX, rightW);
-          }
-        }
-
-        if (secret && incident.auditHash) {
-          this.sectionTitle(doc, 'Audit', leftW, leftX);
-          doc.fillColor('rgba(27,42,65,0.65)').font('Helvetica').fontSize(9);
-          doc.text(`Audit hash: ${incident.auditHash}`, leftX, doc.y, { width: leftW });
-        }
-      });
-    }
-
-    // -------------------------
-    // PDF “Relatório”
-    // -------------------------
-
+  private async exportReportPdf(
+    input: {
+      from?: string;
+      to?: string;
+      teamId?: string;
+      serviceId?: string;
+      severity?: Severity;
+      incidentId?: string;
+    },
+    auth: JwtUserLike | undefined,
+    _role: Role,
+    _secret: string | undefined,
+  ): Promise<Buffer> {
     const scopedTeamId = await this.resolveTeamScope(auth, input.teamId);
-    const resolved = this.resolveRange(input);
 
-    const effectiveInput =
-      resolved.mode === 'range'
-        ? { ...input, teamId: scopedTeamId, from: resolved.from, to: resolved.to }
-        : { ...input, teamId: scopedTeamId };
+    const { effectiveInput, chartRange, rangeLabelCard, headerPeriodLine } =
+      await this.resolveReportRangeAndLabels(input, scopedTeamId);
 
     const where = this.buildIncidentWhere(effectiveInput);
-
-    // >>> NOVO: se for lifetime, o chart precisa de um range real (min/max) para preencher dias.
-    let chartRange: { from: string; to: string };
-    let rangeLabelCard = 'Lifetime';
-    let headerPeriodLine = 'Período: Lifetime';
-
-    if (resolved.mode === 'range') {
-      chartRange = { from: resolved.from, to: resolved.to };
-      rangeLabelCard = `${this.fmtShortDate(resolved.from)} → ${this.fmtShortDate(resolved.to)}`;
-      headerPeriodLine = `Período: ${this.fmtDateTime(resolved.from)}  |  ${this.fmtDateTime(resolved.to)}`;
-    } else {
-      const whereNoDates = this.buildIncidentWhere({
-        teamId: scopedTeamId,
-        serviceId: input.serviceId,
-        severity: input.severity,
-      });
-
-      const agg = await this.prisma.incident.aggregate({
-        where: whereNoDates,
-        _min: { createdAt: true },
-        _max: { createdAt: true },
-      });
-
-      const min = agg._min?.createdAt ?? null;
-      const max = agg._max?.createdAt ?? null;
-
-      if (min && max) {
-        chartRange = {
-          from: this.startOfDayUTC(min.toISOString()).toISOString(),
-          to: this.endOfDayUTC(max.toISOString()).toISOString(),
-        };
-        headerPeriodLine = `Período (lifetime): ${this.fmtDateTime(min)}  |  ${this.fmtDateTime(max)}`;
-        rangeLabelCard = 'Lifetime';
-      } else {
-        // sem dados => fallback visual
-        const fallback = this.lastNDaysRange(undefined, 30);
-        chartRange = fallback;
-        headerPeriodLine = `Período: Lifetime`;
-        rangeLabelCard = 'Lifetime';
-      }
-    }
 
     const incidents = await this.prisma.incident.findMany({
       where,
@@ -1743,7 +1976,6 @@ export class ReportsService {
     const rawSeries = await this.getTimeseries(
       {
         ...effectiveInput,
-        // para lifetime, dá o range real do chart (min/max)
         from: chartRange.from,
         to: chartRange.to,
         interval: ReportsInterval.day,
@@ -1755,13 +1987,17 @@ export class ReportsService {
     const stats = this.quickStats(daily);
 
     return this.pdfToBuffer((doc) => {
+      // Capa / resumo
       doc.fillColor(COLORS.deepNavy).font('Helvetica-Bold').fontSize(18);
       doc.text('Relatório de Incidentes');
       doc.moveDown(0.2);
 
       doc.fillColor('rgba(27,42,65,0.65)').font('Helvetica').fontSize(10);
       doc.text(headerPeriodLine);
-      doc.text(`Incidentes incluídos: ${incidents.length}${incidents.length >= 200 ? ' (cap 200)' : ''}`);
+      doc.text(
+        `Incidentes incluídos: ${incidents.length}${incidents.length >= 200 ? ' (cap 200)' : ''
+        }`,
+      );
       doc.moveDown(0.4);
 
       this.metricCards(doc, [
@@ -1772,12 +2008,20 @@ export class ReportsService {
 
       this.metricCards(doc, [
         { label: 'MTTR avg', value: this.humanSeconds(kpis.mttrSeconds?.avg), accent: COLORS.deepNavy },
-        { label: 'MTTR median', value: this.humanSeconds(kpis.mttrSeconds?.median), accent: COLORS.deepNavy },
+        {
+          label: 'MTTR median',
+          value: this.humanSeconds(kpis.mttrSeconds?.median),
+          accent: COLORS.deepNavy,
+        },
         { label: 'MTTR p90', value: this.humanSeconds(kpis.mttrSeconds?.p90), accent: COLORS.deepNavy },
       ]);
 
       this.metricCards(doc, [
-        { label: 'SLA Compliance', value: kpis.slaCompliancePct == null ? '—' : `${kpis.slaCompliancePct}%`, accent: COLORS.emeraldGreen },
+        {
+          label: 'SLA Compliance',
+          value: kpis.slaCompliancePct == null ? '—' : `${kpis.slaCompliancePct}%`,
+          accent: COLORS.emeraldGreen,
+        },
         { label: 'Range', value: rangeLabelCard, accent: COLORS.warmOrange },
         { label: 'Export', value: 'PDF', accent: COLORS.sapphireBlue },
       ]);
@@ -1794,163 +2038,21 @@ export class ReportsService {
       this.drawSlaTargetsBox(doc);
       this.drawQuickStatsBox(doc, stats, rangeLabelCard);
 
+      // Páginas por incidente (render comum)
       for (const inc of incidents as any[]) {
         doc.addPage();
         doc.y = doc.page.margins.top;
 
-        doc.fillColor(COLORS.deepNavy).font('Helvetica-Bold').fontSize(18);
-        doc.text(inc.title ?? '—');
-
-        doc.fillColor('rgba(27,42,65,0.65)').font('Helvetica').fontSize(10);
-        doc.text(`ID: ${inc.id}`);
-        doc.moveDown(0.4);
-
-        const mttrSeconds = inc.resolvedAt
-          ? Math.max(
-            0,
-            Math.floor(
-              (new Date(inc.resolvedAt).getTime() - new Date(inc.createdAt).getTime()) / 1000,
-            ),
-          )
-          : null;
-
-        const slaTarget = this.slaTargetSeconds(inc.severity);
-        const slaMet = mttrSeconds === null ? null : mttrSeconds <= slaTarget;
-
-        this.metricCards(doc, [
-          { label: 'Severity', value: String(inc.severity), accent: COLORS.warmOrange },
-          { label: 'Status', value: String(inc.status), accent: COLORS.sapphireBlue },
-          { label: 'SLA', value: slaMet == null ? '—' : slaMet ? 'OK' : 'FAIL', accent: slaMet ? COLORS.emeraldGreen : COLORS.dangerRed },
-        ]);
-
-        const pageW = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-        const gap = 18;
-        const rightW = Math.round(pageW * 0.38);
-        const leftW = pageW - rightW - gap;
-        const leftX = doc.page.margins.left;
-        const rightX = leftX + leftW + gap;
-
-        const y0 = doc.y;
-
-        doc.y = y0;
-        this.sectionTitle(doc, 'Detalhes', leftW, leftX);
-
-        const team = inc.team?.name ?? '—';
-        const owner = inc.assignee ? this.pickAuthorLabel(inc.assignee) : '—';
-        const reporter = inc.reporter ? this.pickAuthorLabel(inc.reporter) : '—';
-
-        doc.fillColor(COLORS.deepNavy).font('Helvetica').fontSize(10);
-        doc.text(`Equipa: ${team}`, leftX, doc.y, { width: leftW });
-        doc.text(`Responsável: ${owner}`, leftX, doc.y, { width: leftW });
-        doc.text(`Reporter: ${reporter}`, leftX, doc.y, { width: leftW });
-        doc.text(`Criado: ${this.fmtDateTime(inc.createdAt)}`, leftX, doc.y, { width: leftW });
-        doc.text(`Resolvido: ${this.fmtDateTime(inc.resolvedAt)}`, leftX, doc.y, { width: leftW });
-        doc.text(`MTTR: ${this.humanSeconds(mttrSeconds)}   |   SLA Target: ${this.humanHoursFromSeconds(slaTarget)}`, leftX, doc.y, { width: leftW });
-        const yLeftEnd = doc.y;
-
-        doc.y = y0;
-        this.sectionTitle(doc, 'Descrição', rightW, rightX);
-        doc.fillColor(COLORS.deepNavy).font('Helvetica').fontSize(10);
-
-        const descStartY = doc.y;
-        const maxDescH = this.pageBottom(doc) - descStartY - 10;
-        const { rest: remainingDesc } = this.writeTextFittingOnce(
+        const { mttrSeconds, slaTarget } = this.renderIncidentTitleAndKpis(doc, inc);
+        const layout = this.renderDetailsAndDescriptionTwoColumns(
           doc,
-          inc.description ?? '—',
-          rightX,
-          rightW,
-          Math.max(40, maxDescH),
-          { width: rightW },
-        );
-        const yRightEnd = doc.y;
-
-        doc.y = Math.max(yLeftEnd, yRightEnd) + 8;
-
-        if (remainingDesc && remainingDesc.trim().length > 0) {
-          this.sectionTitle(doc, 'Descrição', pageW, leftX);
-          doc.fillColor(COLORS.deepNavy).font('Helvetica').fontSize(10);
-          this.writeTextPaged(doc, remainingDesc, leftX, pageW, { width: pageW });
-        }
-
-        const events =
-          (inc.timeline ?? []).map((e: any) => ({
-            createdAt: e.createdAt,
-            type: e.type,
-            message: e.message,
-            author: e.author ? { name: e.author.name, email: e.author.email } : null,
-          })) ?? [];
-
-        const timelineComments =
-          (inc.timeline ?? [])
-            .filter((e: any) => this.timelineKind(e.type) === 'COMMENT')
-            .map((e: any) => ({
-              createdAt: e.createdAt,
-              authorLabel: this.pickAuthorLabel(e.author),
-              message: String(e.message ?? '—'),
-            })) ?? [];
-
-        const tableComments =
-          (inc.comments ?? []).map((c: any) => ({
-            createdAt: c.createdAt,
-            authorLabel: this.pickAuthorLabel(c.author),
-            message: this.normalizeCommentText(c),
-          })) ?? [];
-
-        const mergedComments = this.dedupComments(
-          [...tableComments, ...timelineComments].sort(
-            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-          ),
+          inc,
+          mttrSeconds,
+          slaTarget,
         );
 
-        let evIndex = 0;
-        let cIndex = 0;
-
-        this.twoColumnHeaders(doc, 'Timeline', 'Comentários', leftX, leftW, rightX, rightW);
-
-        while (evIndex < events.length || cIndex < mergedComments.length) {
-          const topY = doc.y;
-          const availableH = this.pageBottom(doc) - topY;
-
-          if (availableH < 140) {
-            this.newPage(doc);
-            this.twoColumnHeaders(doc, 'Timeline', 'Comentários', leftX, leftW, rightX, rightW);
-            continue;
-          }
-
-          const tl = this.drawTimelinePaged(doc, {
-            x: leftX,
-            y: topY,
-            w: leftW,
-            h: availableH,
-            events,
-            startIndex: evIndex,
-          });
-
-          const cm = this.drawCommentsPlainPaged(doc, {
-            x: rightX,
-            y: topY,
-            w: rightW,
-            h: Math.min(availableH, Math.max(180, tl.usedHeight || 180)),
-            comments: mergedComments,
-            startIndex: cIndex,
-          });
-
-          const progressed = tl.endIndex > evIndex || cm.endIndex > cIndex;
-          evIndex = tl.endIndex;
-          cIndex = cm.endIndex;
-
-          const used = Math.max(
-            tl.usedHeight,
-            Math.min(availableH, Math.max(180, tl.usedHeight || 180)),
-          );
-          doc.y = topY + used;
-
-          if (evIndex < events.length || cIndex < mergedComments.length) {
-            if (!progressed && cIndex < mergedComments.length) cIndex++;
-            this.newPage(doc);
-            this.twoColumnHeaders(doc, 'Timeline', 'Comentários', leftX, leftW, rightX, rightW);
-          }
-        }
+        const { events, mergedComments } = this.buildEventsAndMergedComments(inc);
+        this.renderTimelineAndCommentsTwoColumns(doc, layout, events, mergedComments);
       }
     });
   }
