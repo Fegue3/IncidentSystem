@@ -1,3 +1,30 @@
+// ✅ mocka pdfkit mesmo que não exista instalado (virtual mock)
+jest.mock(
+  'pdfkit',
+  () => {
+    return function PDFDocumentMock(this: any) {
+      const handlers: Record<string, Function> = {};
+
+      this.on = (evt: string, cb: Function) => {
+        handlers[evt] = cb;
+        return this;
+      };
+
+      this.fontSize = () => this;
+      this.fillColor = () => this;
+      this.text = () => this;
+      this.moveDown = () => this;
+
+      this.end = () => {
+        if (handlers.end) handlers.end();
+      };
+
+      return this;
+    };
+  },
+  { virtual: true },
+);
+
 import { ReportsService } from '../../src/reports/reports.service';
 import { ReportsGroupBy } from '../../src/reports/dto/reports-breakdown.dto';
 import { ReportsInterval } from '../../src/reports/dto/reports-timeseries.dto';
@@ -9,6 +36,7 @@ describe('ReportsService', () => {
         count: jest.fn(),
         groupBy: jest.fn(),
         findMany: jest.fn(),
+        findUnique: jest.fn(),
       },
       categoryOnIncident: {
         groupBy: jest.fn(),
@@ -24,6 +52,10 @@ describe('ReportsService', () => {
       },
       team: {
         findMany: jest.fn(),
+        findFirst: jest.fn(),
+      },
+      incidentTimelineEvent: {
+        create: jest.fn(),
       },
       $queryRaw: jest.fn(),
     } as any;
@@ -38,15 +70,20 @@ describe('ReportsService', () => {
       .mockResolvedValueOnce(3); // closedCount
 
     prisma.$queryRaw
-      .mockResolvedValueOnce([{ avg_seconds: 1200, median_seconds: 900, p90_seconds: 3600 }]) // mttr
+      .mockResolvedValueOnce([
+        { avg_seconds: 1200, median_seconds: 900, p90_seconds: 3600 },
+      ]) // mttr
       .mockResolvedValueOnce([{ compliance: 0.875 }]); // sla
 
     const svc = new ReportsService(prisma);
 
-    const out = await svc.getKpis({
-      from: '2025-01-01T00:00:00.000Z',
-      to: '2025-12-31T00:00:00.000Z',
-    });
+    const out = await svc.getKpis(
+      {
+        from: '2025-01-01T00:00:00.000Z',
+        to: '2025-12-31T00:00:00.000Z',
+      },
+      { id: 'user1', role: 'ADMIN' }, // ✅ mock auth
+    );
 
     expect(out.openCount).toBe(5);
     expect(out.resolvedCount).toBe(7);
@@ -62,13 +99,18 @@ describe('ReportsService', () => {
 
   it('getBreakdown: severity', async () => {
     const prisma = makePrismaMock();
+
     prisma.incident.groupBy.mockResolvedValue([
       { severity: 'SEV2', _count: { _all: 2 } },
       { severity: 'SEV1', _count: { _all: 5 } },
     ]);
 
     const svc = new ReportsService(prisma);
-    const out = await svc.getBreakdown({ groupBy: ReportsGroupBy.severity });
+
+    const out = await svc.getBreakdown(
+      { groupBy: ReportsGroupBy.severity },
+      { id: 'user1', role: 'ADMIN' },
+    );
 
     expect(out[0]).toEqual({ key: 'SEV1', label: 'SEV1', count: 5 });
     expect(out[1]).toEqual({ key: 'SEV2', label: 'SEV2', count: 2 });
@@ -88,7 +130,11 @@ describe('ReportsService', () => {
     ]);
 
     const svc = new ReportsService(prisma);
-    const out = await svc.getBreakdown({ groupBy: ReportsGroupBy.category });
+
+    const out = await svc.getBreakdown(
+      { groupBy: ReportsGroupBy.category },
+      { id: 'user1', role: 'ADMIN' },
+    );
 
     expect(out[0]).toEqual({ key: 'cat1', label: 'Network', count: 3 });
     expect(out[1]).toEqual({ key: 'cat2', label: 'Database', count: 1 });
@@ -103,7 +149,11 @@ describe('ReportsService', () => {
     ]);
 
     const svc = new ReportsService(prisma);
-    const out = await svc.getTimeseries({ interval: ReportsInterval.day });
+
+    const out = await svc.getTimeseries(
+      { interval: ReportsInterval.day },
+      { id: 'user1', role: 'ADMIN' },
+    );
 
     expect(out).toEqual([
       { date: '2025-01-01T00:00:00.000Z', count: 2 },
@@ -129,14 +179,16 @@ describe('ReportsService', () => {
         primaryService: { id: 's1', name: 'Public API', key: 'public-api' },
         categories: [{ category: { id: 'c1', name: 'Network' } }],
         tags: [{ label: 'urgent' }],
+        _count: { capas: 0 },
       },
     ]);
 
     const svc = new ReportsService(prisma);
-    const csv = await svc.exportCsv({});
+
+    const csv = await svc.exportCsv({}, { id: 'user1', role: 'ADMIN' });
 
     expect(csv.split('\n')[0]).toBe(
-      'id,title,status,severity,team,service,assignee,reporter,createdAt,resolvedAt,closedAt,categories,tags',
+      'id,createdAt,title,severity,status,team,service,assignee,reporter,mttrSeconds,slaTargetSeconds,slaMet,capaCount,resolvedAt,closedAt,categories,tags',
     );
 
     // title tem vírgula e aspas -> deve vir quoted e com "" dentro
