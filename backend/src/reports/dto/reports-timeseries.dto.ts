@@ -1,4 +1,5 @@
-import { IsEnum, IsISO8601, IsOptional } from 'class-validator';
+import { IsEnum, IsISO8601, IsOptional, IsString } from 'class-validator';
+import { Severity } from '@prisma/client';
 
 export enum ReportsInterval {
   day = 'day',
@@ -13,6 +14,18 @@ export class ReportsTimeseriesQueryDto {
   @IsOptional()
   @IsISO8601()
   to?: string;
+
+  @IsOptional()
+  @IsString()
+  teamId?: string;
+
+  @IsOptional()
+  @IsString()
+  serviceId?: string;
+
+  @IsOptional()
+  @IsEnum(Severity)
+  severity?: Severity;
 
   @IsEnum(ReportsInterval)
   interval!: ReportsInterval;
