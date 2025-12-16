@@ -22,7 +22,7 @@ export function stableStringify(value: any): string {
     return `[${value.map(stableStringify).join(',')}]`;
   }
 
-  const keys = Object.keys(value).sort();
+  const keys = Object.keys(value).sort((a, b) => a.localeCompare(b));
   return `{${keys
     .map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`)
     .join(',')}}`;
