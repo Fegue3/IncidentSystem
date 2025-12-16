@@ -171,15 +171,19 @@ describe('Incidents (e2e)', () => {
     const id = created.body.id;
 
     // (se o teu controller for POST/DELETE, isto está ok)
-    await request(ctx.http)
+    const sub = await request(ctx.http)
       .post(`/api/incidents/${id}/subscribe`)
       .set('Authorization', `Bearer ${u1.accessToken}`)
       .expect(201);
 
-    await request(ctx.http)
+    expect(sub.status).toBe(201);
+
+    const unsub = await request(ctx.http)
       .delete(`/api/incidents/${id}/subscribe`)
       .set('Authorization', `Bearer ${u1.accessToken}`)
       .expect(200);
+
+    expect(unsub.status).toBe(200);
   });
 
   it('delete -> só reporter pode apagar (u2 recebe 403)', async () => {
@@ -196,19 +200,24 @@ describe('Incidents (e2e)', () => {
 
     const id = created.body.id;
 
-    await request(ctx.http)
+    const del1 = await request(ctx.http)
       .delete(`/api/incidents/${id}`)
       .set('Authorization', `Bearer ${u2.accessToken}`)
       .expect(403);
 
-    await request(ctx.http)
+    expect(del1.status).toBe(403);
+
+    const del2 = await request(ctx.http)
       .delete(`/api/incidents/${id}`)
       .set('Authorization', `Bearer ${u1.accessToken}`)
       .expect(200);
+
+    expect(del2.status).toBe(200);
   });
 
   it('incidents endpoints -> 401 sem token', async () => {
     const ctx = await ctxP;
-    await request(ctx.http).get('/api/incidents').expect(401);
+    const res = await request(ctx.http).get('/api/incidents').expect(401);
+    expect(res.status).toBe(401);
   });
 });
