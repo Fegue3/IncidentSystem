@@ -523,7 +523,7 @@ export class ReportsService {
     maxHeight: number,
     opts?: any,
   ): { chunk: string; rest: string } {
-    const raw = String(text ?? '').replaceAll(/\r\n/g, '\n');
+    const raw = String(text ?? '').replaceAll('\r\n', '\n');
     if (!raw.trim()) return { chunk: '—', rest: '' };
 
     if (doc.heightOfString(raw, { width, ...(opts ?? {}) }) <= maxHeight) {
@@ -1343,7 +1343,7 @@ export class ReportsService {
             ? String(value)
             : JSON.stringify(value);
 
-    if (/[",\r\n]/.test(raw)) return `"${raw.replaceAll(/"/g, '""')}"`;
+    if (/[",\r\n]/.test(raw)) return `"${raw.replaceAll('"', '""')}"`;
     return raw;
   }
 
@@ -1351,7 +1351,8 @@ export class ReportsService {
     u: { name?: string | null; email?: string | null } | null | undefined,
   ): string {
     const name = u?.name?.trim();
-    return name ? name : u?.email?.trim() ? (u!.email as string) : '';
+    if (name) return name;
+    return u?.email?.trim() || '';
   }
 
   private computeMttrSeconds(
