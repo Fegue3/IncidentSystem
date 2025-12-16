@@ -45,10 +45,12 @@ describe('Auth (e2e)', () => {
 
     await registerUser(ctx.http, 'a@a.com', 'StrongPass1!', 'A');
 
-    await request(ctx.http)
+    const res = await request(ctx.http)
       .post('/api/auth/login')
       .send({ email: 'a@a.com', password: 'WRONG' })
       .expect(401);
+
+    expect(res.status).toBe(401);
   });
 
   it('logout -> invalida refresh (refresh deve falhar)', async () => {
@@ -56,15 +58,19 @@ describe('Auth (e2e)', () => {
 
     const reg = await registerUser(ctx.http, 'b@b.com', 'StrongPass1!', 'B');
 
-    await request(ctx.http)
+    const logout = await request(ctx.http)
       .post('/api/auth/logout')
       .set('Authorization', `Bearer ${reg.accessToken}`)
       .expect(201);
 
-    await request(ctx.http)
+    expect(logout.status).toBe(201);
+
+    const refresh = await request(ctx.http)
       .post('/api/auth/refresh')
       .send({ refreshToken: reg.refreshToken })
       .expect(401);
+
+    expect(refresh.status).toBe(401);
   });
 
   it('change-password -> old falha, new funciona', async () => {
@@ -121,13 +127,15 @@ describe('Auth (e2e)', () => {
   it('me -> 401 sem token', async () => {
     const ctx = await ctxP;
 
-    await request(ctx.http).get('/api/auth/me').expect(401);
+    const res = await request(ctx.http).get('/api/auth/me').expect(401);
+    expect(res.status).toBe(401);
   });
 
   it('refresh -> 401 sem refresh token', async () => {
     const ctx = await ctxP;
 
-    await request(ctx.http).post('/api/auth/refresh').send({}).expect(401);
+    const res = await request(ctx.http).post('/api/auth/refresh').send({}).expect(401);
+    expect(res.status).toBe(401);
   });
 
   it('login -> tokens e refresh guardado (refresh funciona)', async () => {
