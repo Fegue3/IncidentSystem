@@ -1,19 +1,9 @@
 import { NotificationsService } from '../../src/notifications/notifications.service';
 
-// ✅ importa o tipo só para ajudar (não é obrigatório)
-import type { IntegrationsService } from '../../src/integrations/integrations.service';
 
 describe('NotificationsService (unit)', () => {
   let service: NotificationsService;
   let originalFetch: typeof global.fetch;
-
-  // ✅ mock mínimo do IntegrationsService (só para satisfazer o constructor)
-  // Se o teu NotificationsService chamar algum método deste service, mete aqui.
-  const integrationsMock: Partial<IntegrationsService> = {
-    // exemplo: se usares flags por integração no backend, podes “forçar on” aqui
-    // isEnabled: jest.fn().mockReturnValue(true),
-    // isNotificationsEnabled: jest.fn().mockReturnValue(true),
-  };
 
   beforeAll(() => {
     originalFetch = global.fetch;
@@ -26,7 +16,7 @@ describe('NotificationsService (unit)', () => {
     process.env.DISCORD_NOTIFICATIONS_ENABLED = 'true';
     process.env.PAGERDUTY_NOTIFICATIONS_ENABLED = 'true';
 
-    service = new NotificationsService(integrationsMock as any);
+    service = new NotificationsService();
     jest.clearAllMocks();
   });
 

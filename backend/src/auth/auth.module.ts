@@ -21,10 +21,7 @@ import { RolesGuard } from './roles.guard';
     AuthService,
     AccessJwtStrategy,
     RefreshJwtStrategy,
-    {
-      provide: APP_GUARD,
-      useClass: RolesGuard,
-    },
+    { provide: APP_GUARD, useClass: RolesGuard },
   ],
 })
 export class AuthModule {}
