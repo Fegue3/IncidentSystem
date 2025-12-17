@@ -10,11 +10,10 @@ import { TeamsModule } from './teams/teams.module';
 import { ServicesModule } from './services/services.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ReportsModule } from './reports/reports.module';
-import { IntegrationsModule } from './integrations/integrations.module';
 
 
 @Module({
-  imports: [PrismaModule, HealthModule, UsersModule, AuthModule, IncidentsModule, TeamsModule, ServicesModule, NotificationsModule, ReportsModule, IntegrationsModule],
+imports: [PrismaModule, HealthModule, UsersModule, AuthModule, IncidentsModule, TeamsModule, ServicesModule, NotificationsModule, ReportsModule,],
   controllers: [AppController],
   providers: [AppService],
 })
