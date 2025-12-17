@@ -318,9 +318,14 @@ describe('ReportsService (full coverage)', () => {
     // getAuthUserId throws
     expect(() => (svc as any).getAuthUserId(null)).toThrow(ForbiddenException);
 
-    // getAuthRole: only enum Role.ADMIN passes; string 'ADMIN' becomes USER
-    expect((svc as any).getAuthRole({ role: 'ADMIN' as any })).toBe(Role.USER);
+    // getAuthRole: 'ADMIN' (string) == Role.ADMIN (Prisma enum value)
+    expect((svc as any).getAuthRole({ role: 'ADMIN' as any })).toBe(Role.ADMIN);
     expect((svc as any).getAuthRole({ role: Role.ADMIN as any })).toBe(Role.ADMIN);
+
+    // and any non-admin becomes USER
+    expect((svc as any).getAuthRole({ role: 'USER' as any })).toBe(Role.USER);
+    expect((svc as any).getAuthRole({ role: undefined as any })).toBe(Role.USER);
+
 
     // resolveTeamScope: admin returns requested
     await expect(
