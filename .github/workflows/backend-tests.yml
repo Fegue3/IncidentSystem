@@ -19,10 +19,28 @@ jobs:
       - name: Show Docker version
         run: docker version
 
+      # ✅ Pull com retry para aguentar outages do Docker Hub (redis/postgres)
+      - name: Pull deps with retry (Postgres + Redis)
+        run: |
+          set -e
+          for i in 1 2 3 4 5; do
+            echo "Attempt $i: docker compose pull postgres redis"
+            if docker compose -f docker-compose.yml -f docker-compose.ci.yml pull postgres redis; then
+              echo "Pull OK"
+              break
+            fi
+            wait=$((i*10))
+            echo "Pull failed. Retrying in ${wait}s..."
+            sleep $wait
+            if [ "$i" = "5" ]; then
+              echo "Pull failed after retries"
+              exit 1
+            fi
+          done
+
       - name: Start dependencies (Postgres + Redis) for CI
         run: docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d postgres redis
 
-      # wait pelo healthcheck do postgres (no host), não dentro do backend
       - name: Wait for Postgres to be healthy
         run: |
           for i in {1..60}; do
@@ -39,7 +57,7 @@ jobs:
 
       - name: Run backend tests inside Docker (unit + integration + e2e + coverage)
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml run --rm backend sh -lc "
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml run --rm --no-deps backend sh -lc "
             npm ci &&
             npx prisma migrate deploy &&
             npm run test:unit &&

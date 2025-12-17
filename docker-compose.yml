@@ -80,7 +80,7 @@ services:
       # Datadog settings
       DD_AGENT_HOST: datadog
       DD_TRACE_AGENT_PORT: 8126
-      DD_API_KEY: ${DD_API_KEY}
+      DD_API_KEY: ${DD_API_KEY:-}
       DD_SITE: ${DD_SITE:-datadoghq.eu}
       DD_ENV: development
     ports:
@@ -108,7 +108,7 @@ services:
     image: gcr.io/datadoghq/agent:7
     container_name: dd-agent
     environment:
-      - DD_API_KEY=${DD_API_KEY}
+      - DD_API_KEY=${DD_API_KEY:-}
       - DD_SITE=${DD_SITE:-datadoghq.eu}
       - DD_APM_ENABLED=true
       - DD_APM_NON_LOCAL_TRAFFIC=true
