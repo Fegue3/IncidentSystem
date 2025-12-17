@@ -9,7 +9,11 @@ import {
   YAxis,
 } from "recharts";
 import "./ReportsPage.css";
-import { ReportsAPI, type ReportsGroupBy, type ReportsInterval } from "../../services/reports";
+import {
+  ReportsAPI,
+  type ReportsGroupBy,
+  type ReportsInterval,
+} from "../../services/reports";
 import { TeamsAPI } from "../../services/teams";
 import { ServicesAPI } from "../../services/services";
 import {
@@ -25,8 +29,12 @@ function toISODateOnly(d: Date) {
 
 // datas do input date => range completo (UTC via ISO)
 function toRangeIso(fromDate: string, toDate: string) {
-  const fromIso = fromDate ? new Date(`${fromDate}T00:00:00.000`).toISOString() : undefined;
-  const toIso = toDate ? new Date(`${toDate}T23:59:59.999`).toISOString() : undefined;
+  const fromIso = fromDate
+    ? new Date(`${fromDate}T00:00:00.000`).toISOString()
+    : undefined;
+  const toIso = toDate
+    ? new Date(`${toDate}T23:59:59.999`).toISOString()
+    : undefined;
   return { fromIso, toIso };
 }
 
@@ -96,6 +104,28 @@ export function ReportsPage() {
     setTo("");
   }
 
+  function clearFilters() {
+    // volta ao default (lifetime + "todas")
+    setFrom("");
+    setTo("");
+    setTeamId("");
+    setServiceId("");
+    setSeverity("");
+
+    // se quiseres que isto NÃO resete estes 2, apaga as linhas abaixo
+    setGroupBy("severity");
+    setInterval("day");
+
+    // carrega logo sem filtros
+    void loadAll({
+      from: undefined,
+      to: undefined,
+      teamId: undefined,
+      serviceId: undefined,
+      severity: undefined as any,
+    });
+  }
+
   const filters = useMemo(() => {
     const { fromIso, toIso } = toRangeIso(from, to);
     return {
@@ -120,22 +150,29 @@ export function ReportsPage() {
     });
   }, [history, from, to]);
 
-  async function loadAll() {
+  async function loadAll(overrideFilters?: {
+    from?: string;
+    to?: string;
+    teamId?: string;
+    serviceId?: string;
+    severity?: any;
+  }) {
     setLoading(true);
     setErr(null);
 
     try {
+      const f = overrideFilters ?? filters;
+
       const listParams = {
-        teamId: filters.teamId,
-        primaryServiceId: filters.serviceId,
-        severity: filters.severity,
+        teamId: f.teamId,
+        primaryServiceId: f.serviceId,
+        severity: f.severity,
       };
 
       const [k, b, s, h] = await Promise.all([
-        ReportsAPI.kpis(filters),
-        ReportsAPI.breakdown({ ...filters, groupBy }),
-        // ✅ FIX: timeseries tem de receber os mesmos filtros
-        ReportsAPI.timeseries({ ...filters, interval }),
+        ReportsAPI.kpis(f),
+        ReportsAPI.breakdown({ ...f, groupBy }),
+        ReportsAPI.timeseries({ ...f, interval }),
         IncidentsAPI.list(listParams),
       ]);
 
@@ -144,7 +181,10 @@ export function ReportsPage() {
       setSeries(s);
 
       setHistory(
-        h.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+        h.sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        ),
       );
     } catch (e: any) {
       setErr(e?.message ?? "Erro ao carregar relatórios");
@@ -156,7 +196,10 @@ export function ReportsPage() {
   useEffect(() => {
     (async () => {
       try {
-        const [t, svcs] = await Promise.all([TeamsAPI.listMine(), ServicesAPI.list()]);
+        const [t, svcs] = await Promise.all([
+          TeamsAPI.listMine(),
+          ServicesAPI.list(),
+        ]);
         setTeams((t as any).items ?? (t as any));
         setServices((svcs as any).items ?? (svcs as any));
       } catch {
@@ -195,7 +238,10 @@ export function ReportsPage() {
   async function onExportIncidentPdf(incidentId: string, title: string) {
     try {
       const blob = await ReportsAPI.exportPdf({ incidentId });
-      downloadBlob(blob, `incidente_${safeFilename(title)}_${incidentId.slice(0, 8)}.pdf`);
+      downloadBlob(
+        blob,
+        `incidente_${safeFilename(title)}_${incidentId.slice(0, 8)}.pdf`,
+      );
     } catch (e: any) {
       setErr(e?.message ?? "Falha ao exportar PDF do incidente");
     }
@@ -210,10 +256,12 @@ export function ReportsPage() {
           <div>
             <h1 className="reports__title">Relatórios e Métricas</h1>
             <p className="reports__subtitle">
-              KPIs, tendências e exportações. O PDF por incidente inclui detalhes + timeline.
+              KPIs, tendências e exportações. O PDF por incidente inclui
+              detalhes + timeline.
               <br />
               <span style={{ color: "#6b7280" }}>
-                Dica: se deixares <b>De</b> e <b>Até</b> vazios, é <b>lifetime</b>.
+                Dica: se deixares <b>De</b> e <b>Até</b> vazios, é{" "}
+                <b>lifetime</b>.
               </span>
             </p>
           </div>
@@ -244,17 +292,28 @@ export function ReportsPage() {
             <div className="reports-filters__row">
               <label className="reports-field">
                 <span>De</span>
-                <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+                <input
+                  type="date"
+                  value={from}
+                  onChange={(e) => setFrom(e.target.value)}
+                />
               </label>
 
               <label className="reports-field">
                 <span>Até</span>
-                <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+                <input
+                  type="date"
+                  value={to}
+                  onChange={(e) => setTo(e.target.value)}
+                />
               </label>
 
               <label className="reports-field">
                 <span>Severidade</span>
-                <select value={severity} onChange={(e) => setSeverity(e.target.value as any)}>
+                <select
+                  value={severity}
+                  onChange={(e) => setSeverity(e.target.value as any)}
+                >
                   <option value="">Todas</option>
                   <option value="SEV1">SEV1</option>
                   <option value="SEV2">SEV2</option>
@@ -277,7 +336,10 @@ export function ReportsPage() {
 
               <label className="reports-field">
                 <span>Serviço</span>
-                <select value={serviceId} onChange={(e) => setServiceId(e.target.value)}>
+                <select
+                  value={serviceId}
+                  onChange={(e) => setServiceId(e.target.value)}
+                >
                   <option value="">Todos</option>
                   {services.map((s) => (
                     <option key={s.id} value={s.id}>
@@ -312,17 +374,29 @@ export function ReportsPage() {
                 <button className="btn btn--secondary" type="button" onClick={() => setLastDays(7)}>
                   Últimos 7d
                 </button>
+
                 <button className="btn btn--secondary" type="button" onClick={() => setLastDays(30)}>
                   Últimos 30d
                 </button>
+
                 <button className="btn btn--secondary" type="button" onClick={setLifetime}>
                   Lifetime
+                </button>
+
+                {/* ✅ NOVO: limpar filtros */}
+                <button
+                  className="btn btn--secondary"
+                  type="button"
+                  onClick={clearFilters}
+                  disabled={loading}
+                >
+                  Limpar filtros
                 </button>
 
                 <button
                   className="btn btn--secondary"
                   type="button"
-                  onClick={loadAll}
+                  onClick={() => loadAll()}
                   disabled={loading}
                 >
                   {loading ? "A carregar..." : "Aplicar filtros"}
@@ -344,7 +418,8 @@ export function ReportsPage() {
           <h2 className="reports-card__title">KPIs</h2>
 
           <p className="reports-help">
-            <b>MTTR</b> = tempo até resolver. <b>avg/median/p90</b> = média / mediana / 90% abaixo deste valor.
+            <b>MTTR</b> = tempo até resolver. <b>avg/median/p90</b> = média /
+            mediana / 90% abaixo deste valor.
             <br />
             <b>SLA</b> = % resolvidos dentro do alvo por severidade.
           </p>
@@ -371,7 +446,8 @@ export function ReportsPage() {
               <div className="kpi kpi--wide">
                 <div className="kpi__label">MTTR (avg / median / p90)</div>
                 <div className="kpi__value kpi__value--small">
-                  {secondsToHuman(kpis.mttrSeconds?.avg)} / {secondsToHuman(kpis.mttrSeconds?.median)} /{" "}
+                  {secondsToHuman(kpis.mttrSeconds?.avg)} /{" "}
+                  {secondsToHuman(kpis.mttrSeconds?.median)} /{" "}
                   {secondsToHuman(kpis.mttrSeconds?.p90)}
                 </div>
               </div>
@@ -414,17 +490,32 @@ export function ReportsPage() {
                 <AreaChart data={series}>
                   <defs>
                     <linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="var(--deep-navy, #1b2a41)" stopOpacity={0.22} />
-                      <stop offset="95%" stopColor="var(--deep-navy, #1b2a41)" stopOpacity={0} />
+                      <stop
+                        offset="0%"
+                        stopColor="var(--deep-navy, #1b2a41)"
+                        stopOpacity={0.22}
+                      />
+                      <stop
+                        offset="95%"
+                        stopColor="var(--deep-navy, #1b2a41)"
+                        stopOpacity={0}
+                      />
                     </linearGradient>
                   </defs>
 
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(27,42,65,0.12)" />
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    vertical={false}
+                    stroke="rgba(27,42,65,0.12)"
+                  />
 
                   <XAxis
                     dataKey="date"
                     tickFormatter={(val) =>
-                      new Date(val).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+                      new Date(val).toLocaleDateString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                      })
                     }
                     stroke="rgba(27,42,65,0.55)"
                     fontSize={12}
@@ -461,7 +552,9 @@ export function ReportsPage() {
         <h2 className="reports-card__title">Histórico de Incidentes</h2>
 
         {filteredHistory.length === 0 ? (
-          <div className="reports-muted">Sem incidentes no intervalo selecionado.</div>
+          <div className="reports-muted">
+            Sem incidentes no intervalo selecionado.
+          </div>
         ) : (
           <div className="history-table-container">
             <table className="reports-table">
@@ -486,7 +579,9 @@ export function ReportsPage() {
                     </td>
                     <td>{inc.title}</td>
                     <td>
-                      <span className={`badge badge--${inc.severity.toLowerCase()}`}>
+                      <span
+                        className={`badge badge--${inc.severity.toLowerCase()}`}
+                      >
                         {getSeverityLabel(inc.severity)}
                       </span>
                     </td>
@@ -511,7 +606,8 @@ export function ReportsPage() {
             </table>
 
             <div className="reports-muted reports-muted--mt">
-              Dica: o botão <b>PDF</b> exporta um relatório completo do incidente (detalhes + timeline).
+              Dica: o botão <b>PDF</b> exporta um relatório completo do incidente
+              (detalhes + timeline).
             </div>
           </div>
         )}
