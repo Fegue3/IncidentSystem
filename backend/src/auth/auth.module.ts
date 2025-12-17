@@ -6,6 +6,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { UsersModule } from '../users/users.module';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
+import { IntegrationsModule } from '../integrations/integrations.module';
 import { AccessJwtStrategy } from './strategies/access-jwt.strategy';
 import { RefreshJwtStrategy } from './strategies/refresh-jwt.strategy';
 import { RolesGuard } from './roles.guard';
@@ -13,6 +14,7 @@ import { RolesGuard } from './roles.guard';
 @Module({
   imports: [
     UsersModule,
+    IntegrationsModule,
     JwtModule.register({
       signOptions: { algorithm: 'HS256' },
     }),
@@ -28,4 +30,4 @@ import { RolesGuard } from './roles.guard';
     },
   ],
 })
-export class AuthModule {}
+export class AuthModule { }

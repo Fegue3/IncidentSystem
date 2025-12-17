@@ -9,6 +9,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { Role, User } from '@prisma/client';
+import { IntegrationsService } from '../integrations/integrations.service';
 
 type Tokens = { accessToken: string; refreshToken: string };
 type JwtPayload = { sub: string; email: string; role: Role; teamId?: string | null };
@@ -19,6 +20,7 @@ export class AuthService {
     private users: UsersService,
     private usersRepo: UsersRepository,
     private jwt: JwtService,
+    private integrations: IntegrationsService,
   ) { }
 
   private sign(payload: object, secret: string, expiresIn: string): string {
@@ -53,6 +55,7 @@ export class AuthService {
 
   async register(email: string, password: string, name?: string) {
     const u = await this.users.create(email, password, name);
+    await this.integrations.ensureDefaultsForUser(u.id);
     // users.create deve devolver o User do prisma, incluindo role (default USER / REPORTER / etc.)
     const tokens = this.signTokens(u);
 
@@ -67,7 +70,7 @@ export class AuthService {
         email: u.email,
         name: u.name,
         role: u.role,
-        // 👇 assumimos que o modelo User tem este campo
+
         teamId: (u as any).teamId ?? null,
       },
       ...tokens,
@@ -80,7 +83,7 @@ export class AuthService {
 
     const ok = await this.users.validatePassword(password, u.password);
     if (!ok) throw new UnauthorizedException('Credenciais inválidas');
-
+    await this.integrations.ensureDefaultsForUser(u.id);
     const tokens = this.signTokens(u);
     await this.usersRepo.setRefreshToken(
       u.id,
