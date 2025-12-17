@@ -1,4 +1,6 @@
 import { Injectable } from '@nestjs/common';
+import { IntegrationKind } from '@prisma/client';
+import { IntegrationsService } from '../integrations/integrations.service';
 
 function toPagerDutySeverity(sev: string) {
   const s = sev.toUpperCase().trim();
@@ -10,6 +12,8 @@ function toPagerDutySeverity(sev: string) {
 
 @Injectable()
 export class NotificationsService {
+  constructor(private readonly integrations: IntegrationsService) { }
+
   async sendDiscord(message: string) {
     const url = process.env.DISCORD_WEBHOOK_URL;
     if (!url) return { ok: false, error: 'DISCORD_WEBHOOK_URL not set' };
@@ -48,5 +52,26 @@ export class NotificationsService {
     }
 
     return { ok: true };
+  }
+
+  async triggerPagerDutyForUser(
+    userId: string,
+    summary: string,
+    severity: string,
+    incidentId: string,
+  ) {
+    const enabled = await this.integrations.isEnabled(
+      userId,
+      IntegrationKind.PAGERDUTY,
+    );
+
+    if (!enabled) return { ok: false, error: 'PagerDuty disabled by user setting' };
+
+    return this.triggerPagerDuty(summary, severity, incidentId);
+  }
+  async sendDiscordForUser(userId: string, message: string) {
+    const enabled = await this.integrations.isEnabled(userId, IntegrationKind.DISCORD);
+    if (!enabled) return { ok: false, error: 'Discord disabled by user setting' };
+    return this.sendDiscord(message);
   }
 }
