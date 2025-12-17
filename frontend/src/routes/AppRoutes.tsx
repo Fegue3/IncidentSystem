@@ -5,7 +5,6 @@ import SignUpPage from "../pages/Auth/SignUpPage/SignUpPage";
 import { useAuth } from "../context/AuthContext";
 import { HomePage } from "../pages/HomePage/HomePage";
 import { AppLayout } from "../layouts/AppLayout/AppLayout";
-import { AboutPage } from "../pages/AboutPage/AboutPage";
 import { AccountPage } from "../pages/AccountPage/AccountPage";
 import { IncidentCreatePage } from "../pages/Incidents/IncidentCreatePage";
 import { IncidentDetailsPage } from "../pages/Incidents/IncidentDetailsPage";
@@ -43,7 +42,6 @@ export default function AppRoutes() {
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/teams" element={<TeamsPage />} />
         <Route path="/integrations" element={<IntegrationsPage />} />
-        <Route path="/about" element={<AboutPage />} />
         <Route path="/account" element={<AccountPage />} />
         <Route path="/incidents/new" element={<IncidentCreatePage />} />
         <Route path="/incidents/:id" element={<IncidentDetailsPage />} />
