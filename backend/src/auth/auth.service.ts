@@ -9,10 +9,14 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { Role, User } from '@prisma/client';
-import { IntegrationsService } from '../integrations/integrations.service';
 
 type Tokens = { accessToken: string; refreshToken: string };
-type JwtPayload = { sub: string; email: string; role: Role; teamId?: string | null };
+type JwtPayload = {
+  sub: string;
+  email: string;
+  role: Role;
+  teamId?: string | null;
+};
 
 @Injectable()
 export class AuthService {
@@ -20,8 +24,7 @@ export class AuthService {
     private users: UsersService,
     private usersRepo: UsersRepository,
     private jwt: JwtService,
-    private integrations: IntegrationsService,
-  ) { }
+  ) {}
 
   private sign(payload: object, secret: string, expiresIn: string): string {
     return this.jwt.sign(payload as any, {
@@ -38,16 +41,25 @@ export class AuthService {
       teamId: (user as any).teamId ?? null,
     };
 
+    const accessSecret =
+      process.env.JWT_ACCESS_SECRET ?? process.env.JWT_SECRET ?? 'dev-access';
+    const refreshSecret =
+      process.env.JWT_REFRESH_SECRET ?? process.env.JWT_SECRET ?? 'dev-refresh';
+
     const accessToken = this.sign(
       base,
-      process.env.JWT_ACCESS_SECRET!,
-      process.env.JWT_ACCESS_EXPIRES ?? '15m',
+      accessSecret,
+      process.env.JWT_ACCESS_EXPIRES_IN ??
+        process.env.JWT_ACCESS_EXPIRES ??
+        '15m',
     );
 
     const refreshToken = this.sign(
       { ...base, type: 'refresh' },
-      process.env.JWT_REFRESH_SECRET!,
-      process.env.JWT_REFRESH_EXPIRES ?? '7d',
+      refreshSecret,
+      process.env.JWT_REFRESH_EXPIRES_IN ??
+        process.env.JWT_REFRESH_EXPIRES ??
+        '7d',
     );
 
     return { accessToken, refreshToken };
@@ -55,8 +67,6 @@ export class AuthService {
 
   async register(email: string, password: string, name?: string) {
     const u = await this.users.create(email, password, name);
-    await this.integrations.ensureDefaultsForUser(u.id);
-    // users.create deve devolver o User do prisma, incluindo role (default USER / REPORTER / etc.)
     const tokens = this.signTokens(u);
 
     await this.usersRepo.setRefreshToken(
@@ -70,7 +80,6 @@ export class AuthService {
         email: u.email,
         name: u.name,
         role: u.role,
-
         teamId: (u as any).teamId ?? null,
       },
       ...tokens,
@@ -83,8 +92,9 @@ export class AuthService {
 
     const ok = await this.users.validatePassword(password, u.password);
     if (!ok) throw new UnauthorizedException('Credenciais inválidas');
-    await this.integrations.ensureDefaultsForUser(u.id);
+
     const tokens = this.signTokens(u);
+
     await this.usersRepo.setRefreshToken(
       u.id,
       await bcrypt.hash(tokens.refreshToken, 12),
@@ -115,6 +125,7 @@ export class AuthService {
     if (!ok) throw new UnauthorizedException('Refresh token inválido');
 
     const tokens = this.signTokens(u);
+
     await this.usersRepo.setRefreshToken(
       u.id,
       await bcrypt.hash(tokens.refreshToken, 12),
@@ -143,6 +154,7 @@ export class AuthService {
 
     await this.usersRepo.setResetToken(u.id, hash, expires);
 
+    // mantém compatível com os teus testes
     return { success: true, testToken: raw };
   }
 
@@ -154,6 +166,7 @@ export class AuthService {
         resetTokenHash: { not: null },
         resetTokenExpires: { gt: new Date() },
       },
+      select: { id: true, resetTokenHash: true },
     });
 
     for (const u of candidates) {
@@ -168,13 +181,9 @@ export class AuthService {
     throw new BadRequestException('Token inválido ou expirado');
   }
 
-  // ---------- /auth/me ----------
-
   async me(userId: string) {
     const u = await this.users.findById(userId);
-    if (!u) {
-      throw new UnauthorizedException('User not found');
-    }
+    if (!u) throw new UnauthorizedException('User not found');
 
     return {
       userId: u.id,
