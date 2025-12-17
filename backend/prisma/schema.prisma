@@ -58,6 +58,11 @@ enum CAPAStatus {
   CANCELLED
 }
 
+enum IntegrationKind {
+  DATADOG
+  PAGERDUTY
+}
+
 // ---------------------------
 // Core models
 // ---------------------------
@@ -80,6 +85,7 @@ model User {
   comments    IncidentComment[]
   subscriptions NotificationSubscription[]
   teams       Team[]     @relation("TeamMembers")
+  integrationSettings IntegrationSetting[]
 
   // lado oposto do author nos eventos de timeline
   timelineAuthored IncidentTimelineEvent[] @relation("TimelineAuthor")
@@ -335,5 +341,19 @@ model NotificationSubscription {
   createdAt  DateTime  @default(now())
 
   @@unique([userId, incidentId, categoryId])
+  @@index([userId])
+}
+
+model IntegrationSetting {
+  id                   String          @id @default(cuid())
+  user                 User            @relation(fields: [userId], references: [id])
+  userId               String
+  kind                 IntegrationKind
+  notificationsEnabled Boolean         @default(false)
+  lastSavedAt          DateTime?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+
+  @@unique([userId, kind])
   @@index([userId])
 }
