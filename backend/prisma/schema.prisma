@@ -61,6 +61,7 @@ enum CAPAStatus {
 enum IntegrationKind {
   DATADOG
   PAGERDUTY
+  DISCORD
 }
 
 // ---------------------------
