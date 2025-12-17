@@ -268,3 +268,36 @@ input:checked+.slider {
 input:checked+.slider:before {
   transform: translateX(20px);
 }
+
+.integration-card--collapsed {
+  opacity: 0.92;
+}
+
+.integration-card__collapsedNote {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f3f4f6;
+  border: 1px solid rgba(27, 42, 65, 0.12);
+  color: #4b5563;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.integrations__info {
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(27, 42, 65, 0.12);
+  background: rgba(110, 143, 189, 0.10);
+  color: var(--deep-navy, #1b2a41);
+  font-weight: 700;
+}
+
+.integrations__error {
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(217, 83, 79, 0.30);
+  background: rgba(217, 83, 79, 0.10);
+  color: #7f1d1d;
+  font-weight: 800;
+}
