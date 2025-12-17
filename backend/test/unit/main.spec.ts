@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 import type { INestApplication } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
 
 // --------------------
 // HOISTED mocks
@@ -10,7 +9,7 @@ const ddInitMock = jest.fn();
 // dd-trace: cobre:
 // - require('dd-trace').init
 // - require('dd-trace').default.init
-// - import tracer from 'dd-trace' (dependendo do interop)
+// - import tracer from 'dd-trace'
 jest.mock('dd-trace', () => {
   const tracer = { init: ddInitMock };
   return Object.assign(tracer, {
@@ -79,9 +78,11 @@ describe('main.ts (unit) - cover main.ts side-effects', () => {
     });
 
     expect((appMock as any).useGlobalPipes).toHaveBeenCalledTimes(1);
-    expect((appMock as any).useGlobalPipes).toHaveBeenCalledWith(
-      expect.any(ValidationPipe),
-    );
+
+    // ✅ matcher estável (não depende de instanceof/interop)
+    const pipeArg = (appMock as any).useGlobalPipes.mock.calls[0][0];
+    expect(pipeArg).toBeTruthy();
+    expect(pipeArg.validatorOptions).toMatchObject({ whitelist: true });
 
     expect((appMock as any).listen).toHaveBeenCalledWith(3000);
   });
