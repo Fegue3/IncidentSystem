@@ -14,22 +14,22 @@ const prisma = new PrismaClient();
 const SEED_PREFIX = process.env.SEED_PREFIX ?? "TestSeed:";
 const TARGET = Number.parseInt(process.env.SEED_COUNT ?? "500", 10);
 
-// FIXED window as requested:
-// "today" = 15/12/2025, window = last 30 days including today -> 30 distinct dates
+// "today" = 15/12/2025 por default, window = last 30 days
 const BASE_DATE_STR = process.env.SEED_BASE_DATE ?? "2025-12-15";
-const WINDOW_DAYS = Number.parseInt(process.env.SEED_WINDOW_DAYS ?? "30", 10); // keep 30
+const WINDOW_DAYS = Number.parseInt(process.env.SEED_WINDOW_DAYS ?? "30", 10);
 
+// ✅ RESET só quando pedires explicitamente
 const RESET =
     process.env.SEED_RESET === "1" ||
     process.env.SEED_RESET === "true" ||
     process.env.SEED_RESET === "yes";
 
-// Avoid IncidentSource @@unique([integrationId, externalId]) collisions
-const RUN_ID = process.env.SEED_RUN_ID ?? `${Date.now()}`;
+// ✅ IMPORTANT: não uses Date.now() por default — tornava cada run “diferente”
+// (mantém determinístico para idempotência)
+const RUN_ID = process.env.SEED_RUN_ID ?? "default";
 
 // -------- Time helpers (UTC for determinism) --------
 function baseDateUtc(): Date {
-    // midday UTC to avoid TZ DST weirdness
     return new Date(`${BASE_DATE_STR}T12:00:00.000Z`);
 }
 function dayBucketUtc(dayOffset: number): Date {
@@ -50,7 +50,6 @@ function clamp(n: number, min: number, max: number) {
 
 // -------- Deterministic pseudo-random (LCG) --------
 function lcg01(seed: number) {
-    // returns [0,1)
     const m = 233280;
     const a = 9301;
     const c = 49297;
@@ -101,6 +100,7 @@ async function getUsersStrict() {
 }
 
 async function resetSeededIncidents() {
+    // ⚠️ só apaga incidentes SEEDADOS (prefix), não mexe nos reais
     const seeded = await prisma.incident.findMany({
         where: { title: { startsWith: SEED_PREFIX } },
         select: { id: true },
@@ -141,6 +141,7 @@ async function ensureTags() {
 }
 
 async function ensureIntegrationSources() {
+    // isto é idempotente por design (upsert)
     const upsert = async (provider: Provider, name: string, baseUrl?: string) => {
         const existing = await prisma.integrationSource.findFirst({ where: { provider, name } });
         if (existing) {
@@ -163,101 +164,95 @@ async function ensureIntegrationSources() {
     return { datadog, prometheus, nagios };
 }
 
-// -------- Scenarios (personas/user stories vibe) --------
+// -------- Scenarios --------
 type Scenario = {
     title: string;
     description: string;
     categoryNames: string[];
     tagLabels: string[];
     serviceKeys: string[];
-    provider?: Provider; // if present, we’ll attach IncidentSource sometimes
-    severityBias?: Severity[]; // optional: weighted-ish list
+    provider?: Provider;
+    severityBias?: Severity[];
 };
 
 const TEAM_NAMES = ["IT Ops", "NOC", "SRE", "Service Desk", "Compliance & Risk"] as const;
 type TeamName = (typeof TEAM_NAMES)[number];
 
 function statusByAge(ageDays: number, r: number): IncidentStatus {
-    // newer days -> more open; older -> more resolved/closed
-    if (ageDays <= 1) return r < 0.35 ? IncidentStatus.NEW : r < 0.7 ? IncidentStatus.TRIAGED : IncidentStatus.IN_PROGRESS;
+    if (ageDays <= 1)
+        return r < 0.35
+            ? IncidentStatus.NEW
+            : r < 0.7
+                ? IncidentStatus.TRIAGED
+                : IncidentStatus.IN_PROGRESS;
+
     if (ageDays <= 4) {
-        if (r < 0.10) return IncidentStatus.NEW;
-        if (r < 0.30) return IncidentStatus.TRIAGED;
+        if (r < 0.1) return IncidentStatus.NEW;
+        if (r < 0.3) return IncidentStatus.TRIAGED;
         if (r < 0.65) return IncidentStatus.IN_PROGRESS;
-        if (r < 0.80) return IncidentStatus.ON_HOLD;
+        if (r < 0.8) return IncidentStatus.ON_HOLD;
         return IncidentStatus.RESOLVED;
     }
+
     if (ageDays <= 10) {
-        if (r < 0.10) return IncidentStatus.ON_HOLD;
+        if (r < 0.1) return IncidentStatus.ON_HOLD;
         if (r < 0.35) return IncidentStatus.IN_PROGRESS;
         if (r < 0.75) return IncidentStatus.RESOLVED;
-        if (r < 0.90) return IncidentStatus.CLOSED;
+        if (r < 0.9) return IncidentStatus.CLOSED;
         return IncidentStatus.REOPENED;
     }
-    // old
+
     if (r < 0.65) return IncidentStatus.CLOSED;
-    if (r < 0.90) return IncidentStatus.RESOLVED;
+    if (r < 0.9) return IncidentStatus.RESOLVED;
     return IncidentStatus.REOPENED;
 }
 
 function severityFor(team: TeamName, ageDays: number, isSpike: boolean, r: number, bias?: Severity[]) {
-    // if scenario has bias list, use it as a “soft” bias
     if (bias && bias.length) {
         const s = pick(bias, Math.floor(r * 10_000));
-        // spikes nudge to worse severity
         if (isSpike && (s === Severity.SEV3 || s === Severity.SEV4) && r < 0.25) return Severity.SEV2;
         return s;
     }
 
-    // team defaults
     if (team === "Compliance & Risk") {
         if (isSpike && r < 0.25) return Severity.SEV1;
-        return r < 0.20 ? Severity.SEV1 : r < 0.65 ? Severity.SEV2 : Severity.SEV3;
+        return r < 0.2 ? Severity.SEV1 : r < 0.65 ? Severity.SEV2 : Severity.SEV3;
     }
     if (team === "Service Desk") {
-        return r < 0.65 ? Severity.SEV4 : r < 0.90 ? Severity.SEV3 : Severity.SEV2;
+        return r < 0.65 ? Severity.SEV4 : r < 0.9 ? Severity.SEV3 : Severity.SEV2;
     }
     if (team === "SRE") {
-        if (isSpike && r < 0.20) return Severity.SEV1;
-        return r < 0.20 ? Severity.SEV2 : r < 0.75 ? Severity.SEV3 : Severity.SEV2;
+        if (isSpike && r < 0.2) return Severity.SEV1;
+        return r < 0.2 ? Severity.SEV2 : r < 0.75 ? Severity.SEV3 : Severity.SEV2;
     }
     if (team === "NOC") {
-        return r < 0.20 ? Severity.SEV2 : r < 0.80 ? Severity.SEV3 : Severity.SEV4;
+        return r < 0.2 ? Severity.SEV2 : r < 0.8 ? Severity.SEV3 : Severity.SEV4;
     }
-    // IT Ops
     if (isSpike && r < 0.15) return Severity.SEV1;
-    return r < 0.30 ? Severity.SEV2 : r < 0.85 ? Severity.SEV3 : Severity.SEV4;
+    return r < 0.3 ? Severity.SEV2 : r < 0.85 ? Severity.SEV3 : Severity.SEV4;
 }
 
-// Differentiated daily distribution with spikes + weekend dips, then adjusted to exactly TARGET
 function buildDayCounts(): number[] {
     const counts: number[] = [];
-    const spikeOffsets = new Set([2, 7, 13, 21]); // recent-ish spikes
+    const spikeOffsets = new Set([2, 7, 13, 21]);
 
     for (let d = 0; d < WINDOW_DAYS; d++) {
         const date = dayBucketUtc(d);
-        const dow = date.getUTCDay(); // 0 Sun .. 6 Sat
+        const dow = date.getUTCDay();
 
-        // base: weekdays higher, weekends lower
         let base = dow === 0 ? 10 : dow === 6 ? 12 : 18;
 
-        // trend: slightly more incidents in the most recent half
-        const recencyBoost = Math.round(((WINDOW_DAYS - 1 - d) / (WINDOW_DAYS - 1)) * 6) - 2; // [-2..+4]
+        const recencyBoost = Math.round(((WINDOW_DAYS - 1 - d) / (WINDOW_DAYS - 1)) * 6) - 2;
         base += recencyBoost;
+        base += (d % 5) - 2;
 
-        // periodic “noise”
-        base += (d % 5) - 2; // [-2..+2]
-
-        // spikes
         if (spikeOffsets.has(d)) base += d === 7 ? 45 : d === 13 ? 35 : 25;
 
         counts.push(Math.max(6, base));
     }
 
-    // adjust to TARGET exactly
     let sum = counts.reduce((a, b) => a + b, 0);
 
-    // if far from target, scale roughly first
     if (sum !== TARGET) {
         const factor = TARGET / sum;
         for (let i = 0; i < counts.length; i++) {
@@ -287,7 +282,23 @@ function buildDayCounts(): number[] {
 
 // -------- Main --------
 async function main() {
+    // ✅ Idempotência:
+    // - Por defeito não apaga nada
+    // - Se já existirem incidentes seedados (prefix), faz SKIP e sai
+    // - Se quiseres recriar, usa SEED_RESET=true
     if (RESET) await resetSeededIncidents();
+
+    const existing = await prisma.incident.count({
+        where: { title: { startsWith: SEED_PREFIX } },
+    });
+
+    if (!RESET && existing > 0) {
+        console.log(
+            `Seed incidents SKIP: já existem ${existing} incidentes (${SEED_PREFIX}*). ` +
+            `Usa SEED_RESET=true para apagar e recriar.`,
+        );
+        return;
+    }
 
     const U = await getUsersStrict();
     await ensureTags();
@@ -311,7 +322,6 @@ async function main() {
     const tagByLabel = new Map(tags.map((t) => [t.label, t.id]));
     const serviceByKey = new Map(services.map((s) => [s.key, s]));
 
-    // Personas per team (reporter/assignee)
     const personaByTeam: Record<TeamName, { reporterId: string; assigneeId: string }> = {
         "IT Ops": { reporterId: U.marta.id, assigneeId: U.marta.id },
         NOC: { reporterId: U.rui.id, assigneeId: U.rui.id },
@@ -320,7 +330,6 @@ async function main() {
         "Compliance & Risk": { reporterId: U.sofia.id, assigneeId: U.sofia.id },
     };
 
-    // Scenarios per team
     const scenariosByTeam: Record<TeamName, Scenario[]> = {
         "IT Ops": [
             {
@@ -440,13 +449,12 @@ async function main() {
         ],
     };
 
-    // Team selection weights (more realistic load)
     const teamWeights: Array<{ item: TeamName; weight: number }> = [
         { item: "SRE", weight: 0.28 },
         { item: "IT Ops", weight: 0.24 },
-        { item: "NOC", weight: 0.20 },
+        { item: "NOC", weight: 0.2 },
         { item: "Service Desk", weight: 0.18 },
-        { item: "Compliance & Risk", weight: 0.10 },
+        { item: "Compliance & Risk", weight: 0.1 },
     ];
 
     const dayCounts = buildDayCounts();
@@ -462,7 +470,6 @@ async function main() {
         for (let k = 0; k < dailyTotal; k++) {
             globalIdx++;
 
-            // deterministic r values
             const r1 = lcg01(globalIdx * 17 + 3);
             const r2 = lcg01(globalIdx * 31 + 7);
             const r3 = lcg01(globalIdx * 61 + 11);
@@ -474,22 +481,18 @@ async function main() {
             const scenarios = scenariosByTeam[teamName];
             const scenario = pick(scenarios, Math.floor(r2 * 10_000));
 
-            // spread timestamps within day (00:00..23:59) but keep “nice” distribution
             const minuteOfDay = (k * 17 + dayOffset * 13 + Math.floor(r3 * 120)) % (24 * 60);
             const createdAt = minutesAfter(bucketStart, minuteOfDay);
 
             const status = statusByAge(dayOffset, r2);
             const severity = severityFor(teamName, dayOffset, isSpike, r3, scenario.severityBias);
 
-            // Choose service
-            let svc =
+            const svc =
                 serviceByKey.get(pick(scenario.serviceKeys, globalIdx)) ??
                 services.find((s) => teamId && s.ownerTeamId === teamId) ??
                 pick(services, globalIdx);
 
-            // Metrics timestamps (make MTTR vary a bit for graph/metrics)
             const triageMins = clamp(8 + Math.floor(r1 * 25), 5, 60);
-            const workMins = clamp(25 + Math.floor(r2 * 90), 20, 240);
 
             const triagedAt = status === IncidentStatus.NEW ? null : minutesAfter(createdAt, triageMins);
             const inProgressAt =
@@ -497,26 +500,22 @@ async function main() {
                     ? null
                     : minutesAfter(createdAt, triageMins + 10);
 
-            // longer MTTR on spike days and on higher severity
             const mttrHoursBase = isSpike ? 8 : 3;
-            const sevBoost = severity === Severity.SEV1 ? 10 : severity === Severity.SEV2 ? 6 : severity === Severity.SEV3 ? 3 : 1;
+            const sevBoost =
+                severity === Severity.SEV1 ? 10 : severity === Severity.SEV2 ? 6 : severity === Severity.SEV3 ? 3 : 1;
             const mttrHours = clamp(mttrHoursBase + sevBoost + Math.floor(r3 * 6), 1, 24);
 
             const resolvedAt =
-                status === IncidentStatus.RESOLVED ||
-                    status === IncidentStatus.CLOSED ||
-                    status === IncidentStatus.REOPENED
+                status === IncidentStatus.RESOLVED || status === IncidentStatus.CLOSED || status === IncidentStatus.REOPENED
                     ? hoursAfter(createdAt, mttrHours)
                     : null;
 
-            const closedAt = status === IncidentStatus.CLOSED && resolvedAt ? hoursAfter(resolvedAt, 4 + Math.floor(r1 * 10)) : null;
+            const closedAt =
+                status === IncidentStatus.CLOSED && resolvedAt ? hoursAfter(resolvedAt, 4 + Math.floor(r1 * 10)) : null;
 
             const reopenAt =
-                status === IncidentStatus.REOPENED && resolvedAt
-                    ? hoursAfter(resolvedAt, 2 + Math.floor(r2 * 12))
-                    : null;
+                status === IncidentStatus.REOPENED && resolvedAt ? hoursAfter(resolvedAt, 2 + Math.floor(r2 * 12)) : null;
 
-            // Categories + tags
             const categoryCreates = scenario.categoryNames
                 .map((n) => catByName.get(n))
                 .filter((id): id is string => Boolean(id))
@@ -527,8 +526,7 @@ async function main() {
                 .filter((id): id is string => Boolean(id))
                 .map((id) => ({ id }));
 
-            // IncidentSource on ~70% to exercise integration features
-            const withSource = Boolean(scenario.provider) && r1 < 0.70;
+            const withSource = Boolean(scenario.provider) && r1 < 0.7;
             const integrationId =
                 scenario.provider === Provider.DATADOG
                     ? integrations.datadog.id
@@ -540,7 +538,6 @@ async function main() {
 
             const externalId = `${SEED_PREFIX.toLowerCase()}-${RUN_ID}-d${dayOffset}-k${k}-g${globalIdx}-${teamName}-${svc.key}-${scenario.provider ?? "none"}`;
 
-            // CAPA on some higher-severity resolved/closed
             const withCapa =
                 (severity === Severity.SEV1 || severity === Severity.SEV2) &&
                 (status === IncidentStatus.RESOLVED || status === IncidentStatus.CLOSED) &&
@@ -548,7 +545,6 @@ async function main() {
 
             const title = `${SEED_PREFIX} ${teamName} — ${scenario.title} (${severity}) [${BASE_DATE_STR} -${dayOffset}d]`;
 
-            // Timeline building
             const timelineCreates: any[] = [];
 
             if (triagedAt) {
@@ -652,7 +648,6 @@ async function main() {
                 });
             }
 
-            // Comments
             const commentCreates: any[] = [
                 {
                     authorId: persona.reporterId,
@@ -664,8 +659,7 @@ async function main() {
             if (status !== IncidentStatus.NEW) {
                 commentCreates.push({
                     authorId: persona.assigneeId,
-                    body:
-                        "Atualização (seed): análise em curso; runbook seguido; recolhidas métricas/logs/traces.",
+                    body: "Atualização (seed): análise em curso; runbook seguido; recolhidas métricas/logs/traces.",
                     createdAt: minutesAfter(createdAt, 60 + Math.floor(r1 * 90)),
                 });
             }
@@ -692,7 +686,7 @@ async function main() {
 
                     triagedAt,
                     inProgressAt,
-                    resolvedAt: status === IncidentStatus.REOPENED ? resolvedAt : resolvedAt,
+                    resolvedAt,
                     closedAt,
 
                     createdAt,
@@ -737,7 +731,7 @@ async function main() {
                                         "CAPA: melhorar prevenção/deteção (runbook + alerting + guardrails de deploy/config).",
                                     status: r1 < 0.5 ? CAPAStatus.IN_PROGRESS : CAPAStatus.OPEN,
                                     ownerId: persona.assigneeId,
-                                    dueAt: hoursAfter(createdAt, 24 * (5 + Math.floor(r2 * 10))), // 5-14 days
+                                    dueAt: hoursAfter(createdAt, 24 * (5 + Math.floor(r2 * 10))),
                                 },
                             ],
                         }
