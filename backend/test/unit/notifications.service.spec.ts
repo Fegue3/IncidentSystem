@@ -1,5 +1,6 @@
 import { NotificationsService } from '../../src/notifications/notifications.service';
 
+
 describe('NotificationsService (unit)', () => {
   let service: NotificationsService;
   let originalFetch: typeof global.fetch;
@@ -9,6 +10,12 @@ describe('NotificationsService (unit)', () => {
   });
 
   beforeEach(() => {
+    // ✅ garante que não estás a bloquear tudo com feature flags no env
+    // (se o teu NotificationsService não usa isto, não faz mal estar aqui)
+    process.env.NOTIFICATIONS_ENABLED = 'true';
+    process.env.DISCORD_NOTIFICATIONS_ENABLED = 'true';
+    process.env.PAGERDUTY_NOTIFICATIONS_ENABLED = 'true';
+
     service = new NotificationsService();
     jest.clearAllMocks();
   });
@@ -18,6 +25,11 @@ describe('NotificationsService (unit)', () => {
     delete process.env.DISCORD_WEBHOOK_URL;
     delete process.env.PAGERDUTY_ROUTING_KEY;
 
+    // flags (se existirem)
+    delete process.env.NOTIFICATIONS_ENABLED;
+    delete process.env.DISCORD_NOTIFICATIONS_ENABLED;
+    delete process.env.PAGERDUTY_NOTIFICATIONS_ENABLED;
+
     // restaurar fetch original
     global.fetch = originalFetch;
   });
@@ -26,6 +38,10 @@ describe('NotificationsService (unit)', () => {
     // garantir limpeza final
     delete process.env.DISCORD_WEBHOOK_URL;
     delete process.env.PAGERDUTY_ROUTING_KEY;
+
+    delete process.env.NOTIFICATIONS_ENABLED;
+    delete process.env.DISCORD_NOTIFICATIONS_ENABLED;
+    delete process.env.PAGERDUTY_NOTIFICATIONS_ENABLED;
   });
 
   describe('sendDiscord', () => {
@@ -43,7 +59,10 @@ describe('NotificationsService (unit)', () => {
 
       const res = await service.sendDiscord('hello');
 
-      expect(res).toEqual({ ok: true });
+      // se o teu service agora devolve também status, adapta o expect:
+      // ex: expect(res.ok).toBe(true);
+      expect(res).toEqual({ ok: true, status: undefined }); // 👈 se isto falhar, vê nota abaixo
+
       expect(global.fetch).toHaveBeenCalledTimes(1);
 
       const [url, init] = (global.fetch as jest.Mock).mock.calls[0];

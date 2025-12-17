@@ -77,6 +77,12 @@ services:
       REDIS_URL: redis://redis:6379
       JWT_SECRET: change_me         # Em prod, usar segredo/chaves via secrets/vars seguras
       PORT: 3000
+      # Datadog settings
+      DD_AGENT_HOST: datadog
+      DD_TRACE_AGENT_PORT: 8126
+      DD_API_KEY: ${DD_API_KEY:-}
+      DD_SITE: ${DD_SITE:-datadoghq.eu}
+      DD_ENV: development
     ports:
       - "3000:3000"                # API disponível em http://localhost:3000
     volumes:
@@ -89,6 +95,33 @@ services:
         condition: service_healthy
     # Instala deps, aplica migrations e arranca em modo watch
     command: sh -lc "npm ci && npx prisma migrate deploy && npx prisma db seed && npm run start:dev"
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # ---------------------------------------------------------------------------
+  # Datadog Agent – Monitorização e Tracing
+  # - Coleta métricas de infraestrutura, logs e APM traces
+  # - DD_API_KEY deve ser definido no .env
+  # ---------------------------------------------------------------------------
+  datadog:
+    image: gcr.io/datadoghq/agent:7
+    container_name: dd-agent
+    environment:
+      - DD_API_KEY=${DD_API_KEY:-}
+      - DD_SITE=${DD_SITE:-datadoghq.eu}
+      - DD_APM_ENABLED=true
+      - DD_APM_NON_LOCAL_TRAFFIC=true
+      - DD_DOGSTATSD_NON_LOCAL_TRAFFIC=true
+    ports:
+      - "8126:8126/tcp"           # APM receiver
+      - "8125:8125/udp"           # DogStatsD
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc/:/host/proc/:ro
+      - /sys/fs/cgroup/:/host/sys/fs/cgroup:ro
+    labels:
+      com.datadoghq.ad.logs: '[{"source": "datadog-agent", "service": "datadog-agent"}]'
     restart: unless-stopped
     networks:
       - app-network

@@ -1,35 +1,73 @@
-import crypto from 'crypto';
+import { createHmac } from 'crypto';
 
-type PrismaLike = {
+export type PrismaLike = {
   incident: {
-    findUnique: Function;
-    update: Function;
+    findUnique: (args: any) => Promise<any | null>;
+    update: (args: any) => Promise<any>;
   };
 };
 
 function iso(d: any): string | null {
-  if (!d) return null;
+  if (d === null || d === undefined) return null;
   const dt = d instanceof Date ? d : new Date(d);
   return Number.isFinite(dt.getTime()) ? dt.toISOString() : null;
 }
 
+function sortKey(v: any): string {
+  // stable, null-safe, deterministic
+  if (v === null || v === undefined) return '';
+  return typeof v === 'string' ? v : String(v);
+}
+
+/**
+ * Deterministic JSON-like serialization:
+ * - sorts object keys
+ * - preserves array order
+ * - handles Date/BigInt safely
+ * - throws on cycles (so you never silently hash nonsense)
+ */
 export function stableStringify(value: any): string {
+  return stableStringifyInternal(value, new WeakSet());
+}
+
+function stableStringifyInternal(value: any, seen: WeakSet<object>): string {
   if (value === null || value === undefined) return 'null';
 
-  if (typeof value !== 'object') return JSON.stringify(value);
+  const t = typeof value;
 
-  if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(',')}]`;
+  if (t === 'bigint') return JSON.stringify(value.toString());
+  if (t !== 'object') return JSON.stringify(value);
+
+  if (value instanceof Date) {
+    // Use ISO to avoid locale differences
+    return JSON.stringify(iso(value));
   }
 
+  if (Array.isArray(value)) {
+    return `[${value.map((v) => stableStringifyInternal(v, seen)).join(',')}]`;
+  }
+
+  // cycle detection
+  if (seen.has(value)) {
+    throw new Error('stableStringify: circular structure');
+  }
+  seen.add(value);
+
   const keys = Object.keys(value).sort((a, b) => a.localeCompare(b));
-  return `{${keys
-    .map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`)
+  const out = `{${keys
+    .map((k) => `${JSON.stringify(k)}:${stableStringifyInternal(value[k], seen)}`)
     .join(',')}}`;
+
+  seen.delete(value);
+  return out;
 }
 
 export function computeHmacSha256Hex(secret: string, payload: string): string {
-  return crypto.createHmac('sha256', secret).update(payload, 'utf8').digest('hex');
+  if (!secret) throw new Error('computeHmacSha256Hex: secret is required');
+  if (payload === null || payload === undefined)
+    throw new Error('computeHmacSha256Hex: payload is required');
+
+  return createHmac('sha256', secret).update(payload, 'utf8').digest('hex');
 }
 
 export function buildIncidentAuditPayload(incident: any) {
@@ -39,11 +77,11 @@ export function buildIncidentAuditPayload(incident: any) {
       name: x.category?.name ?? null,
       assignedAt: iso(x.assignedAt),
     }))
-    .sort((a: any, b: any) => String(a.categoryId).localeCompare(String(b.categoryId)));
+    .sort((a: any, b: any) => sortKey(a.categoryId).localeCompare(sortKey(b.categoryId)));
 
   const tags = (incident.tags ?? [])
     .map((t: any) => ({ id: t.id ?? null, label: t.label ?? null }))
-    .sort((a: any, b: any) => String(a.label).localeCompare(String(b.label)));
+    .sort((a: any, b: any) => sortKey(a.label).localeCompare(sortKey(b.label)));
 
   const timeline = (incident.timeline ?? [])
     .map((e: any) => ({
@@ -57,8 +95,8 @@ export function buildIncidentAuditPayload(incident: any) {
     }))
     .sort(
       (a: any, b: any) =>
-        String(a.createdAt).localeCompare(String(b.createdAt)) ||
-        String(a.id).localeCompare(String(b.id)),
+        sortKey(a.createdAt).localeCompare(sortKey(b.createdAt)) ||
+        sortKey(a.id).localeCompare(sortKey(b.id)),
     );
 
   const comments = (incident.comments ?? [])
@@ -70,8 +108,8 @@ export function buildIncidentAuditPayload(incident: any) {
     }))
     .sort(
       (a: any, b: any) =>
-        String(a.createdAt).localeCompare(String(b.createdAt)) ||
-        String(a.id).localeCompare(String(b.id)),
+        sortKey(a.createdAt).localeCompare(sortKey(b.createdAt)) ||
+        sortKey(a.id).localeCompare(sortKey(b.id)),
     );
 
   const capas = (incident.capas ?? [])
@@ -86,8 +124,8 @@ export function buildIncidentAuditPayload(incident: any) {
     }))
     .sort(
       (a: any, b: any) =>
-        String(a.createdAt).localeCompare(String(b.createdAt)) ||
-        String(a.id).localeCompare(String(b.id)),
+        sortKey(a.createdAt).localeCompare(sortKey(b.createdAt)) ||
+        sortKey(a.id).localeCompare(sortKey(b.id)),
     );
 
   const sources = (incident.sources ?? [])
@@ -99,8 +137,8 @@ export function buildIncidentAuditPayload(incident: any) {
     }))
     .sort(
       (a: any, b: any) =>
-        String(a.integrationId).localeCompare(String(b.integrationId)) ||
-        String(a.externalId).localeCompare(String(b.externalId)),
+        sortKey(a.integrationId).localeCompare(sortKey(b.integrationId)) ||
+        sortKey(a.externalId).localeCompare(sortKey(b.externalId)),
     );
 
   return {
@@ -122,9 +160,8 @@ export function buildIncidentAuditPayload(incident: any) {
 
       createdAt: iso(incident.createdAt),
 
-      // ⚠️ NÃO incluir updatedAt aqui:
-      // porque ao gravar auditHash, o Prisma atualiza updatedAt automaticamente
-      // e isso causava mismatch imediato.
+      // ⚠️ DO NOT include updatedAt:
+      // Prisma updates updatedAt when writing auditHash, which would cause immediate mismatches.
     },
     categories,
     tags,
@@ -173,7 +210,9 @@ export async function computeIncidentAuditHash(
           updatedAt: true,
         },
       },
-      sources: { select: { id: true, integrationId: true, externalId: true, createdAt: true } },
+      sources: {
+        select: { id: true, integrationId: true, externalId: true, createdAt: true },
+      },
     },
   });
 

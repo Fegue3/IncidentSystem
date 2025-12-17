@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { IntegrationKind } from '@prisma/client';
 
 function toPagerDutySeverity(sev: string) {
   const s = sev.toUpperCase().trim();
@@ -10,6 +11,8 @@ function toPagerDutySeverity(sev: string) {
 
 @Injectable()
 export class NotificationsService {
+  constructor() { }
+
   async sendDiscord(message: string) {
     const url = process.env.DISCORD_WEBHOOK_URL;
     if (!url) return { ok: false, error: 'DISCORD_WEBHOOK_URL not set' };
@@ -49,4 +52,5 @@ export class NotificationsService {
 
     return { ok: true };
   }
+
 }

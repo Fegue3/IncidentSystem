@@ -42,15 +42,6 @@ export function TopNav() {
       </NavLink>
 
       <NavLink
-        to="/about"
-        className={({ isActive }) =>
-          isActive ? "topnav__link topnav__link--active" : "topnav__link"
-        }
-      >
-        Sobre
-      </NavLink>
-
-      <NavLink
         to="/account"
         className={({ isActive }) =>
           isActive ? "topnav__link topnav__link--active" : "topnav__link"

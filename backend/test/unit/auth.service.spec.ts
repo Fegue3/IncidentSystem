@@ -75,14 +75,22 @@ describe('AuthService (unit)', () => {
   it('login -> email não existe => Unauthorized', async () => {
     usersMock.findByEmail.mockResolvedValue(null);
 
-    await expect(service.login('x@x.com', 'pw')).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(service.login('x@x.com', 'pw')).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
   });
 
   it('login -> password inválida => Unauthorized', async () => {
-    usersMock.findByEmail.mockResolvedValue({ id: 'u1', password: 'HASH', role: 'USER' });
+    usersMock.findByEmail.mockResolvedValue({
+      id: 'u1',
+      password: 'HASH',
+      role: 'USER',
+    });
     usersMock.validatePassword.mockResolvedValue(false);
 
-    await expect(service.login('a@a.com', 'pw')).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(service.login('a@a.com', 'pw')).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
   });
 
   it('login -> ok => grava refresh hash e devolve tokens', async () => {
@@ -111,7 +119,9 @@ describe('AuthService (unit)', () => {
   it('refresh -> se user não tem refreshTokenHash => Unauthorized', async () => {
     usersMock.findById.mockResolvedValue({ id: 'u1', refreshTokenHash: null });
 
-    await expect(service.refresh('u1', 'incoming')).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(service.refresh('u1', 'incoming')).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
   });
 
   it('refresh -> ok => devolve novos tokens e atualiza refresh hash', async () => {
@@ -135,7 +145,11 @@ describe('AuthService (unit)', () => {
 
     const res = await service.changePassword('u1', 'old', 'newStrongPass1!');
 
-    expect(usersMock.changePassword).toHaveBeenCalledWith('u1', 'old', 'newStrongPass1!');
+    expect(usersMock.changePassword).toHaveBeenCalledWith(
+      'u1',
+      'old',
+      'newStrongPass1!',
+    );
     expect(res).toEqual({ success: true });
   });
 
@@ -172,27 +186,52 @@ describe('AuthService (unit)', () => {
     const bcrypt = require('bcrypt');
     bcrypt.compare.mockResolvedValue(false);
 
-    repoMock.prisma.user.findMany.mockResolvedValue([
-      { id: 'u1', resetTokenHash: 'H1' },
-    ]);
+    repoMock.prisma.user.findMany.mockResolvedValue([{ id: 'u1', resetTokenHash: 'H1' }]);
 
-    await expect(service.resetPassword('incoming', 'StrongPass1!')).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    await expect(
+      service.resetPassword('incoming', 'StrongPass1!'),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('resetPassword -> encontra match => setPassword + clearResetToken', async () => {
     const bcrypt = require('bcrypt');
     bcrypt.compare.mockResolvedValueOnce(true);
 
-    repoMock.prisma.user.findMany.mockResolvedValue([
-      { id: 'u1', resetTokenHash: 'H1' },
-    ]);
+    repoMock.prisma.user.findMany.mockResolvedValue([{ id: 'u1', resetTokenHash: 'H1' }]);
 
     const res = await service.resetPassword('incoming', 'StrongPass1!');
 
     expect(repoMock.setPassword).toHaveBeenCalledWith('u1', 'HASHED');
     expect(repoMock.clearResetToken).toHaveBeenCalledWith('u1');
     expect(res).toEqual({ success: true });
+  });
+
+  // ✅ NOVOS TESTES PARA COBRIR me()
+
+  it('me -> se user não existe => UnauthorizedException', async () => {
+    usersMock.findById.mockResolvedValue(null);
+
+    await expect(service.me('missing')).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+  });
+
+  it('me -> ok => devolve userId/email/role/teamId', async () => {
+    usersMock.findById.mockResolvedValue({
+      id: 'u1',
+      email: 'a@a.com',
+      role: 'USER',
+      teamId: null,
+    });
+
+    const out = await service.me('u1');
+
+    expect(usersMock.findById).toHaveBeenCalledWith('u1');
+    expect(out).toEqual({
+      userId: 'u1',
+      email: 'a@a.com',
+      role: 'USER',
+      teamId: null,
+    });
   });
 });
