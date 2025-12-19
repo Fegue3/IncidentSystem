@@ -12,7 +12,7 @@ datasource db {
 }
 
 // ---------------------------
-// Enums
+// Enums: vocabulário controlado do domínio
 // ---------------------------
 
 enum IncidentStatus {
@@ -170,7 +170,7 @@ model Incident {
   // Integrations / external sources
   sources     IncidentSource[]
 
-  // CAPAs (novo)
+  // CAPAs
   capas       CAPA[]
 
   // Subscriptions (lado oposto)
@@ -264,7 +264,7 @@ model Tag {
 }
 
 // ---------------------------
-// CAPA 
+// CAPA
 // ---------------------------
 
 model CAPA {
