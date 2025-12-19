@@ -19,7 +19,7 @@ Esta pasta contém **3 configurações Jest** separadas, para manter:
 
 - `test/config/jest.e2e.config.ts`
   - **Scope:** `test/e2e/**/*.e2e.spec.ts`
-  - **Objetivo:** validar fluxos completos via HTTP (Nest app + guards + pipes + DB).
+  - **Objetivo:** validar fluxos completos via HTTP (Nest a pp + guards + pipes + DB).
   - **Coverage:** (não definido aqui — tipicamente opcional em E2E)
 
 ## Como correr
