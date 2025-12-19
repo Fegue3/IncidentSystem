@@ -1,3 +1,23 @@
+/**
+ * @file users.int.spec.ts
+ * @module test/integration/users
+ *
+ * @summary
+ *  - Testes de integração do UsersService: create, unique email, changePassword.
+ *
+ * @description
+ *  Valida com DB real:
+ *  - create persiste user e guarda password com hash (não plaintext);
+ *  - create rejeita email repetido (BadRequest);
+ *  - changePassword altera password quando oldPass está correto;
+ *  - changePassword falha quando oldPass está errado.
+ *
+ * @dependencies
+ *  - AppModule + UsersService real.
+ *  - PrismaService para asserts diretos.
+ *  - resetDb para isolamento.
+ */
+
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../../src/app.module';
 import { PrismaService } from '../../src/prisma/prisma.service';
@@ -51,9 +71,9 @@ describe('Users (integration)', () => {
   it('create() -> rejeita email repetido', async () => {
     await users.create('dup@test.com', 'StrongPass1!', 'A');
 
-    await expect(
-      users.create('dup@test.com', 'StrongPass1!', 'B'),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(users.create('dup@test.com', 'StrongPass1!', 'B')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
   });
 
   it('changePassword() -> altera password quando oldPass correto', async () => {
@@ -69,8 +89,6 @@ describe('Users (integration)', () => {
   it('changePassword() -> falha quando oldPass errado', async () => {
     const u = await users.create('cp2@test.com', 'OldPass1!', 'CP2');
 
-    await expect(
-      users.changePassword(u.id, 'WRONG', 'NewPass1!'),
-    ).rejects.toBeTruthy();
+    await expect(users.changePassword(u.id, 'WRONG', 'NewPass1!')).rejects.toBeTruthy();
   });
 });

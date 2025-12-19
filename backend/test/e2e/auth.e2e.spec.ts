@@ -1,9 +1,36 @@
+/**
+ * @file auth.e2e.spec.ts
+ * @module test/e2e/auth.e2e
+ *
+ * @summary
+ *  - Testes E2E do módulo de autenticação: registo, login, refresh, logout, me, change-password e reset-password.
+ *
+ * @description
+ *  Valida o contrato HTTP dos endpoints `/api/auth/*` com uma app Nest real (bootstrapE2E),
+ *  garantindo que:
+ *  - endpoints protegidos exigem token;
+ *  - refresh token é emitido e invalidado no logout;
+ *  - operações sensíveis (change password / delete account) respeitam autenticação.
+ *
+ * @dependencies
+ *  - supertest: requests HTTP contra o servidor Nest.
+ *  - bootstrapE2E/resetDb: setup e limpeza determinística entre testes.
+ *
+ * @security
+ *  - Exercita autenticação real via Bearer token.
+ *  - Valida endpoints públicos vs protegidos (401).
+ *
+ * @performance
+ *  - Execução sequencial recomendada (maxWorkers=1) por envolver DB.
+ */
+
 import request from 'supertest';
 import { bootstrapE2E, resetDb, registerUser, loginUser } from './_helpers/e2e-utils';
 
 jest.setTimeout(60_000);
 
 describe('Auth (e2e)', () => {
+  // Reutiliza o mesmo bootstrap para toda a suite (evita re-inicializar a app em cada teste)
   const ctxP = bootstrapE2E();
 
   beforeEach(async () => {
@@ -21,6 +48,7 @@ describe('Auth (e2e)', () => {
     const ctx = await ctxP;
 
     const reg = await registerUser(ctx.http, 'u@u.com', 'StrongPass1!', 'U');
+
     await request(ctx.http)
       .get('/api/auth/me')
       .set('Authorization', `Bearer ${reg.accessToken}`)
@@ -126,14 +154,12 @@ describe('Auth (e2e)', () => {
 
   it('me -> 401 sem token', async () => {
     const ctx = await ctxP;
-
     const res = await request(ctx.http).get('/api/auth/me').expect(401);
     expect(res.status).toBe(401);
   });
 
   it('refresh -> 401 sem refresh token', async () => {
     const ctx = await ctxP;
-
     const res = await request(ctx.http).post('/api/auth/refresh').send({}).expect(401);
     expect(res.status).toBe(401);
   });

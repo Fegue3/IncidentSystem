@@ -1,3 +1,52 @@
+/**
+ * @file IncidentDetailsPage.tsx
+ * @module pages/Incidents/IncidentDetailsPage
+ *
+ * @summary
+ *  - Página de detalhe de incidente: mostra dados, timeline e comentários, e permite gerir estado, severidade e owner
+ *    (com regras de permissão baseadas em reporter/owner).
+ *
+ * @description
+ *  - Funcionalidades:
+ *    - Carregar incidente (detalhes + timeline + comentários)
+ *    - Alterar estado (com transições permitidas)
+ *    - Alterar severidade
+ *    - Atribuir/alterar owner (lista membros da equipa via TeamsAPI)
+ *    - Adicionar comentários
+ *    - Apagar incidente (apenas reporter)
+ *    - Renderizar timeline com classificação “inteligente” (status/comment/severity/owner/fields)
+ *
+ *  - Notas sobre timeline:
+ *    - O backend pode devolver eventos com formatos diferentes (fields/changes/diff/payload/meta/details).
+ *    - Esta página tenta normalizar mudanças (normalizeChanges) sem recorrer a `any`.
+ *    - Há um mecanismo de “pending hint” para decorar eventos vazios de FIELD_UPDATE (quando backend não fornece changes).
+ *
+ * @dependencies
+ *  - `react-router-dom`: params (`id`) e navegação
+ *  - `IncidentsAPI`: get/changeStatus/updateFields/addComment/delete
+ *  - `TeamsAPI`: listMembers(teamId) para dropdown de owners
+ *  - `AuthContext`: utilizador autenticado para regras de permissões
+ *
+ * @security
+ *  - UI aplica regras de UX (quem pode editar) mas o backend deve validar permissões.
+ *  - Regras locais:
+ *    - Se não houver owner: reporter pode escolher owner inicial e editar.
+ *    - Se houver owner: apenas o owner pode alterar estado/severidade/owner.
+ *    - Delete: apenas reporter.
+ *
+ * @errors
+ *  - Carregamento: `loadingError`
+ *  - Status update: `statusError`
+ *  - Severity update: `severityError`
+ *  - Owner update: `ownerError`
+ *  - Comentários: `commentError`
+ *  - Delete: `deleteError`
+ *
+ * @performance
+ *  - useMemo para allowedNext, mapas de labels e filtering leve.
+ *  - Evita setState após unmount (flags active nos loads).
+ */
+
 import type { FormEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -16,6 +65,12 @@ import type { UserSummary } from "../../services/users";
 
 type Params = { id: string };
 
+/**
+ * Define transições permitidas de estado (workflow).
+ *
+ * @param current Estado atual.
+ * @returns Lista de estados para os quais é permitido transitar.
+ */
 function getAllowedNextStatuses(current: IncidentStatus): IncidentStatus[] {
   const map: Record<IncidentStatus, IncidentStatus[]> = {
     NEW: ["TRIAGED", "IN_PROGRESS"],
@@ -209,7 +264,7 @@ function getSeverityChange(ev: TimelineEvent): SeverityChange | null {
   return null;
 }
 
-/** ✅ FIX: também lê "Responsável atualizado: NOME" da message */
+/** Lê owner change por campos diretos, changes e fallback por message (incl. “Responsável atualizado: ...”). */
 function getOwnerChange(ev: TimelineEvent, labelById: Map<string, string>): OwnerChange | null {
   const obj: unknown = ev;
 
@@ -223,7 +278,7 @@ function getOwnerChange(ev: TimelineEvent, labelById: Map<string, string>): Owne
         "ownerId",
         "nextAssigneeId",
         "assignedToId",
-      ])
+      ]),
     ) ??
     normalizeId(
       tryReadNested(obj, [
@@ -231,7 +286,7 @@ function getOwnerChange(ev: TimelineEvent, labelById: Map<string, string>): Owne
         ["owner", "id"],
         ["toAssignee", "id"],
         ["toOwner", "id"],
-      ])
+      ]),
     ) ??
     null;
 
@@ -243,7 +298,7 @@ function getOwnerChange(ev: TimelineEvent, labelById: Map<string, string>): Owne
         ["owner", "name"],
         ["toAssignee", "name"],
         ["toOwner", "name"],
-      ])
+      ]),
     ) ??
     null;
 
@@ -255,7 +310,7 @@ function getOwnerChange(ev: TimelineEvent, labelById: Map<string, string>): Owne
         ["owner", "email"],
         ["toAssignee", "email"],
         ["toOwner", "email"],
-      ])
+      ]),
     ) ??
     null;
 
@@ -289,7 +344,8 @@ function getOwnerChange(ev: TimelineEvent, labelById: Map<string, string>): Owne
     }
 
     // 3) removido
-    const removedMatch = msg.match(/respons[aá]vel\s+(?:removido|removida)\b/i) ?? msg.match(/owner\s+removed\b/i);
+    const removedMatch =
+      msg.match(/respons[aá]vel\s+(?:removido|removida)\b/i) ?? msg.match(/owner\s+removed\b/i);
     if (removedMatch) return { toId: null, toLabel: "Sem owner" };
   }
 
@@ -320,11 +376,15 @@ function getGenericFieldChanges(ev: TimelineEvent): GenericChange[] {
     if (!from && !to) continue;
 
     const label =
-      c.key === "title" ? "Título" :
-        c.key === "description" ? "Descrição" :
-          c.key === "primaryServiceId" ? "Serviço" :
-            c.key === "teamId" ? "Equipa" :
-              c.key;
+      c.key === "title"
+        ? "Título"
+        : c.key === "description"
+          ? "Descrição"
+          : c.key === "primaryServiceId"
+            ? "Serviço"
+            : c.key === "teamId"
+              ? "Equipa"
+              : c.key;
 
     out.push({
       label,
@@ -342,7 +402,7 @@ function getEventKind(
   ev: TimelineEvent,
   sev: SeverityChange | null,
   owner: OwnerChange | null,
-  generic: GenericChange[]
+  generic: GenericChange[],
 ): Kind {
   if (ev.type === "STATUS_CHANGE" || (ev.fromStatus && ev.toStatus)) return "STATUS";
   if (ev.type === "COMMENT") return "COMMENT";
@@ -371,6 +431,7 @@ function getTimelineDotClass(ev: TimelineEvent, kind: Kind, sev: SeverityChange 
     if (m.includes("ok")) return "timeline__dot--success";
     if (m.includes("fail")) return "timeline__dot--error";
   }
+
   if (kind === "STATUS" && ev.toStatus) {
     const s = ev.toStatus;
     if (s === "NEW" || s === "TRIAGED") return "timeline__dot--open";
@@ -408,7 +469,7 @@ function getChangeRowClass(kind: Kind, sev: SeverityChange | null): string {
   return "timeline__change-row";
 }
 
-/* -------------------------- FIX: hints para FIELD_UPDATE vazio -------------------------- */
+/* -------------------------- hints para FIELD_UPDATE vazio -------------------------- */
 
 type PendingHint =
   | { kind: "OWNER"; fromId: string | null; toId: string | null; startedAt: number }
@@ -471,7 +532,7 @@ export function IncidentDetailsPage() {
 
   const timelineRef = useRef<HTMLDivElement | null>(null);
 
-  // ✅ FIX state
+  // hints/decorations para eventos vazios
   const [pendingHint, setPendingHint] = useState<PendingHint | null>(null);
   const [decorations, setDecorations] = useState<Record<string, Decoration>>({});
 
@@ -480,6 +541,9 @@ export function IncidentDetailsPage() {
     timelineRef.current.scrollTop = timelineRef.current.scrollHeight;
   }, [incident?.timeline?.length, timelineExpanded]);
 
+  /**
+   * Recarrega incidente e tenta “decorar” eventos vazios com base em operações pendentes (severity/owner).
+   */
   async function refreshIncident(id: string) {
     try {
       const data = await IncidentsAPI.get(id);
@@ -520,6 +584,9 @@ export function IncidentDetailsPage() {
     }
   }
 
+  /**
+   * Load inicial do incidente.
+   */
   useEffect(() => {
     if (!incidentId) return;
 
@@ -556,6 +623,9 @@ export function IncidentDetailsPage() {
     setSelectedOwnerId(currentAssigneeId);
   }, [currentAssigneeId]);
 
+  /**
+   * Carrega lista de membros da equipa para escolher owner.
+   */
   useEffect(() => {
     const teamId = incident?.team?.id;
     if (!teamId) return;
@@ -588,7 +658,7 @@ export function IncidentDetailsPage() {
   const incidentStatus = incident?.status;
   const allowedNext = useMemo(
     () => (incidentStatus ? getAllowedNextStatuses(incidentStatus) : []),
-    [incidentStatus]
+    [incidentStatus],
   );
 
   const canDelete = !!incident && !!user && incident.reporter.id === user.id;
@@ -603,6 +673,9 @@ export function IncidentDetailsPage() {
   const reporter = incident?.reporter;
   const assignee = incident?.assignee;
 
+  /**
+   * Mapa de labels por userId para resolver nomes na timeline.
+   */
   const userLabelById = useMemo(() => {
     const m = new Map<string, string>();
     for (const u of availableOwners) m.set(u.id, u.name ?? u.email);
@@ -611,8 +684,12 @@ export function IncidentDetailsPage() {
     return m;
   }, [
     availableOwners,
-    reporter?.id, reporter?.name, reporter?.email,
-    assignee?.id, assignee?.name, assignee?.email,
+    reporter?.id,
+    reporter?.name,
+    reporter?.email,
+    assignee?.id,
+    assignee?.name,
+    assignee?.email,
   ]);
 
   function renderUserLabel(id: string | null | undefined, fallback?: string) {
@@ -738,7 +815,9 @@ export function IncidentDetailsPage() {
 
   async function handleDeleteIncident() {
     if (!incident) return;
-    const confirmed = window.confirm("Tens a certeza que queres apagar este incidente? Esta ação é irreversível.");
+    const confirmed = window.confirm(
+      "Tens a certeza que queres apagar este incidente? Esta ação é irreversível.",
+    );
     if (!confirmed) return;
 
     setDeleting(true);
@@ -782,16 +861,12 @@ export function IncidentDetailsPage() {
 
   const isTimelineScrollable = incident.timeline.length > 4;
 
-  const primaryService = (incident as unknown as { primaryService?: { name?: string; key?: string } | null })
-    .primaryService;
-
+  const primaryService = incident.primaryService;
   const serviceLabel = primaryService
     ? `${primaryService.name ?? "Serviço"}${primaryService.key ? ` (${primaryService.key})` : ""}`
     : "—";
 
-  const headerOwnerLabel = incident.assignee
-    ? (incident.assignee.name ?? incident.assignee.email)
-    : "Sem owner";
+  const headerOwnerLabel = incident.assignee ? incident.assignee.name ?? incident.assignee.email : "Sem owner";
 
   return (
     <section className="incident-details">
@@ -821,9 +896,7 @@ export function IncidentDetailsPage() {
         <h1 className="incident-details__title">{incident.title}</h1>
 
         <div className="incident-details__chips">
-          <span className={`chip chip--status chip--status-${incident.status.toLowerCase()}`}>
-            {incident.status}
-          </span>
+          <span className={`chip chip--status chip--status-${incident.status.toLowerCase()}`}>{incident.status}</span>
 
           <span className={`chip chip--severity chip--severity-${incident.severity.toLowerCase()}`}>
             {getSeverityShortLabel(incident.severity)}
@@ -831,9 +904,7 @@ export function IncidentDetailsPage() {
 
           {incident.team && <span className="incident-details__pill">Equipa: {incident.team.name}</span>}
 
-          <span className="incident-details__pill incident-details__pill--service">
-            Serviço: {serviceLabel}
-          </span>
+          <span className="incident-details__pill incident-details__pill--service">Serviço: {serviceLabel}</span>
         </div>
 
         <p className="incident-details__subtitle">
@@ -858,7 +929,7 @@ export function IncidentDetailsPage() {
         </p>
 
         <div className="incident-manage__grid">
-          {/* COLUNA ESQ: status + mensagem (acima) + botão (abaixo) */}
+          {/* COLUNA ESQ: status + mensagem + submit */}
           <form className="incident-form incident-form--status" onSubmit={handleStatusSubmit}>
             <label className="form-field">
               <span className="form-field__label">Alterar estado</span>
@@ -888,7 +959,6 @@ export function IncidentDetailsPage() {
               </p>
             )}
 
-            {/* ✅ mensagem em cima */}
             <label className="form-field incident-form__message-field">
               <span className="form-field__label">Mensagem (opcional)</span>
               <input
@@ -901,7 +971,6 @@ export function IncidentDetailsPage() {
               />
             </label>
 
-            {/* ✅ botão em baixo */}
             <button
               type="submit"
               className="incident-btn incident-btn--primary incident-form__submit"
@@ -1006,7 +1075,10 @@ export function IncidentDetailsPage() {
 
           <h2 className="incident-panel__title incident-panel__title--mt">Timeline</h2>
 
-          <div ref={timelineRef} className={"timeline-wrapper" + (timelineExpanded ? " timeline-wrapper--expanded" : "")}>
+          <div
+            ref={timelineRef}
+            className={"timeline-wrapper" + (timelineExpanded ? " timeline-wrapper--expanded" : "")}
+          >
             <ol className="timeline">
               {incident.timeline.map((event) => {
                 const deco = decorations[event.id];
@@ -1107,7 +1179,6 @@ export function IncidentDetailsPage() {
                       {kind === "FIELDS" && genericChanges.length === 0 && showMsg && (
                         <p className="timeline__message">{msg}</p>
                       )}
-
                     </div>
                   </li>
                 );

@@ -1,3 +1,17 @@
+// test/unit/teams.controller.spec.ts
+/**
+ * Unit tests: TeamsController
+ *
+ * Objetivo:
+ * - confirmar que o controller delega para o TeamsService
+ * - validar que o endpoint "mine" usa req.user.sub como userId
+ *
+ * Nota:
+ * - service é mockado com jest.fn() para todas as operações.
+ */
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import { Test, TestingModule } from '@nestjs/testing';
 import { TeamsController } from '../../src/teams/teams.controller';
 import { TeamsService } from '../../src/teams/teams.service';

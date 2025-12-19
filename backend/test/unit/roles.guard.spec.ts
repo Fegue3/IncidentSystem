@@ -1,7 +1,25 @@
+// test/unit/roles.guard.spec.ts
+/**
+ * Unit tests: RolesGuard
+ *
+ * O que valida:
+ * - Se não existir metadata @Roles -> permite (true)
+ * - Se existir @Roles e o user não tiver role -> nega (false)
+ * - Se existir @Roles e role não corresponder -> nega (false)
+ * - Se existir @Roles e role corresponder -> permite (true)
+ *
+ * Nota:
+ * - O RolesGuard lê metadata via Reflector (handler + class)
+ * - O "ctx" é mockado com getHandler/getClass/switchToHttp().getRequest().user.role
+ */
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import { Reflector } from '@nestjs/core';
+import { Role } from '@prisma/client';
+
 import { RolesGuard } from '../../src/auth/roles.guard';
 import { Roles } from '../../src/auth/roles.decorator';
-import { Role } from '@prisma/client';
 
 describe('RolesGuard (unit)', () => {
   let reflector: Reflector;

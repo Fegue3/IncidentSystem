@@ -1,3 +1,26 @@
+/**
+ * @file notifications.int.spec.ts
+ * @module test/integration/notifications
+ *
+ * @summary
+ *  - Testa comportamento de notificações no fluxo de criação de incidentes (IncidentsService) com mocks de Prisma + NotificationsService.
+ *
+ * @description
+ *  Estes testes validam regras de negócio sem DB real:
+ *  - SEV1/SEV2 disparam Discord + PagerDuty;
+ *  - SEV3/SEV4 não disparam notificações;
+ *  - a mensagem do Discord inclui link para o frontend (FRONTEND_BASE_URL) quando configurado.
+ *
+ * @dependencies
+ *  - IncidentsService real.
+ *  - PrismaService mockado com $transaction e "tx" interno.
+ *  - NotificationsService mockado (sendDiscord/triggerPagerDuty).
+ *
+ * @testability
+ *  - Isola lógica de notificação sem depender de Postgres/Prisma real.
+ *  - Valida que os métodos corretos são chamados com payload esperado.
+ */
+
 import { Test, TestingModule } from '@nestjs/testing';
 import { IncidentsService } from '../../src/incidents/incidents.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
@@ -11,6 +34,7 @@ describe('NotificationsService Integration - Incident Creation (NEW)', () => {
   let prisma: any;
 
   beforeEach(async () => {
+    // Transaction mock (o IncidentsService usa tx.* dentro de prisma.$transaction)
     const tx: any = {
       incident: { create: jest.fn() },
       incidentTimelineEvent: { create: jest.fn(), createMany: jest.fn() },
@@ -37,14 +61,8 @@ describe('NotificationsService Integration - Incident Creation (NEW)', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         IncidentsService,
-        {
-          provide: PrismaService,
-          useValue: prismaMock,
-        },
-        {
-          provide: NotificationsService,
-          useValue: notificationsMock,
-        },
+        { provide: PrismaService, useValue: prismaMock },
+        { provide: NotificationsService, useValue: notificationsMock },
       ],
     }).compile();
 
@@ -89,12 +107,12 @@ describe('NotificationsService Integration - Incident Creation (NEW)', () => {
       await service.create(dto, 'user-1');
 
       expect(notificationsService.sendDiscord).toHaveBeenCalledWith(
-        expect.stringContaining('🚨 **SEV1**')
+        expect.stringContaining('🚨 **SEV1**'),
       );
       expect(notificationsService.triggerPagerDuty).toHaveBeenCalledWith(
         'Critical Database Failure',
         Severity.SEV1,
-        'inc-1'
+        'inc-1',
       );
     });
 
@@ -132,12 +150,12 @@ describe('NotificationsService Integration - Incident Creation (NEW)', () => {
       await service.create(dto, 'user-2');
 
       expect(notificationsService.sendDiscord).toHaveBeenCalledWith(
-        expect.stringContaining('🚨 **SEV2**')
+        expect.stringContaining('🚨 **SEV2**'),
       );
       expect(notificationsService.triggerPagerDuty).toHaveBeenCalledWith(
         'High Latency on API Gateway',
         Severity.SEV2,
-        'inc-2'
+        'inc-2',
       );
     });
 
@@ -169,7 +187,6 @@ describe('NotificationsService Integration - Incident Creation (NEW)', () => {
 
       await service.create(dto, 'user-1');
 
-      // SEV3 não dispara notificações
       expect(notificationsService.sendDiscord).not.toHaveBeenCalled();
       expect(notificationsService.triggerPagerDuty).not.toHaveBeenCalled();
     });
@@ -201,7 +218,6 @@ describe('NotificationsService Integration - Incident Creation (NEW)', () => {
 
       await service.create(dto, 'user-1');
 
-      // SEV4 não dispara notificações
       expect(notificationsService.sendDiscord).not.toHaveBeenCalled();
       expect(notificationsService.triggerPagerDuty).not.toHaveBeenCalled();
     });
@@ -238,7 +254,7 @@ describe('NotificationsService Integration - Incident Creation (NEW)', () => {
       await service.create(dto, 'user-1');
 
       expect(notificationsService.sendDiscord).toHaveBeenCalledWith(
-        expect.stringContaining('http://localhost:5173/incidents/inc-5')
+        expect.stringContaining('http://localhost:5173/incidents/inc-5'),
       );
     });
   });

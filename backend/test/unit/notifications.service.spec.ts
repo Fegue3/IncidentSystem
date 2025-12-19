@@ -1,5 +1,20 @@
-import { NotificationsService } from '../../src/notifications/notifications.service';
+// test/unit/notifications.service.spec.ts
+/**
+ * Unit tests: NotificationsService
+ *
+ * O que este ficheiro valida:
+ * - sendDiscord(): valida env var DISCORD_WEBHOOK_URL e payload do fetch
+ * - triggerPagerDuty(): valida env var PAGERDUTY_ROUTING_KEY, mapeamento de severidade,
+ *   payload para endpoint PagerDuty, e handling de erros (res.ok=false / res.text throws)
+ *
+ * Nota:
+ * - global.fetch é mockado por teste
+ * - variáveis de ambiente são limpas em afterEach/afterAll para evitar "leaks" entre testes
+ */
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+import { NotificationsService } from '../../src/notifications/notifications.service';
 
 describe('NotificationsService (unit)', () => {
   let service: NotificationsService;
@@ -10,8 +25,7 @@ describe('NotificationsService (unit)', () => {
   });
 
   beforeEach(() => {
-    // ✅ garante que não estás a bloquear tudo com feature flags no env
-    // (se o teu NotificationsService não usa isto, não faz mal estar aqui)
+    // flags para garantir que a feature está "ativa" durante os testes (se o service usar isto)
     process.env.NOTIFICATIONS_ENABLED = 'true';
     process.env.DISCORD_NOTIFICATIONS_ENABLED = 'true';
     process.env.PAGERDUTY_NOTIFICATIONS_ENABLED = 'true';
@@ -21,11 +35,11 @@ describe('NotificationsService (unit)', () => {
   });
 
   afterEach(() => {
-    // limpar env vars
+    // limpar env vars específicas
     delete process.env.DISCORD_WEBHOOK_URL;
     delete process.env.PAGERDUTY_ROUTING_KEY;
 
-    // flags (se existirem)
+    // limpar flags
     delete process.env.NOTIFICATIONS_ENABLED;
     delete process.env.DISCORD_NOTIFICATIONS_ENABLED;
     delete process.env.PAGERDUTY_NOTIFICATIONS_ENABLED;
@@ -35,7 +49,7 @@ describe('NotificationsService (unit)', () => {
   });
 
   afterAll(() => {
-    // garantir limpeza final
+    // limpeza final (segurança extra)
     delete process.env.DISCORD_WEBHOOK_URL;
     delete process.env.PAGERDUTY_ROUTING_KEY;
 
@@ -59,9 +73,8 @@ describe('NotificationsService (unit)', () => {
 
       const res = await service.sendDiscord('hello');
 
-      // se o teu service agora devolve também status, adapta o expect:
-      // ex: expect(res.ok).toBe(true);
-      expect(res).toEqual({ ok: true, status: undefined }); // 👈 se isto falhar, vê nota abaixo
+      // Se o teu service devolve {ok:true, status:<number>}, ajusta este expect.
+      expect(res).toEqual({ ok: true, status: undefined });
 
       expect(global.fetch).toHaveBeenCalledTimes(1);
 
@@ -83,7 +96,6 @@ describe('NotificationsService (unit)', () => {
 
     it('maps SEV1 to critical', async () => {
       process.env.PAGERDUTY_ROUTING_KEY = 'pd_key';
-
       global.fetch = jest.fn().mockResolvedValue({ ok: true } as any);
 
       const res = await service.triggerPagerDuty('sum', 'SEV1', 'inc1');

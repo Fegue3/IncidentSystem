@@ -1,3 +1,18 @@
+/**
+ * @file test/unit/incidents.filtering.spec.ts
+ * @module tests/unit/incidents-filtering
+ *
+ * @summary
+ *  - Testes unitários do método findAll/listagem com filtros no IncidentsService.
+ *
+ * @description
+ *  - Valida a construção do objeto `where` e a resolução de primaryServiceKey -> serviceId.
+ *  - PrismaService é mockado; não existe DB real.
+ *
+ * @performance
+ *  - A resolução de primaryServiceKey implica uma query extra ao modelo service;
+ *    este teste garante que a query é feita com select mínimo (id).
+ */
 import { Test, TestingModule } from '@nestjs/testing';
 import { IncidentStatus, Severity } from '@prisma/client';
 import { IncidentsService } from '../../src/incidents/incidents.service';
@@ -5,7 +20,7 @@ import { PrismaService } from '../../src/prisma/prisma.service';
 import { NotificationsService } from '../../src/notifications/notifications.service';
 import { ListIncidentsDto } from '../../src/incidents/dto/list-incidents.dto';
 
-describe('IncidentsService - Filtering & Search (NEW)', () => {
+describe('IncidentsService - Filtering & Search (unit)', () => {
   let service: IncidentsService;
   let prisma: any;
 
@@ -75,10 +90,7 @@ describe('IncidentsService - Filtering & Search (NEW)', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         IncidentsService,
-        {
-          provide: PrismaService,
-          useValue: prismaMock,
-        },
+        { provide: PrismaService, useValue: prismaMock },
         {
           provide: NotificationsService,
           useValue: {
@@ -94,7 +106,7 @@ describe('IncidentsService - Filtering & Search (NEW)', () => {
   });
 
   describe('findAll with filters', () => {
-    it('deve filtrar por status', async () => {
+    it('filtra por status', async () => {
       const query: ListIncidentsDto = { status: IncidentStatus.NEW };
       prisma.incident.findMany.mockResolvedValue([mockIncidents[0]]);
 
@@ -107,7 +119,7 @@ describe('IncidentsService - Filtering & Search (NEW)', () => {
       });
     });
 
-    it('deve filtrar por severidade', async () => {
+    it('filtra por severidade', async () => {
       const query: ListIncidentsDto = { severity: Severity.SEV1 };
       prisma.incident.findMany.mockResolvedValue([mockIncidents[0]]);
 
@@ -120,7 +132,7 @@ describe('IncidentsService - Filtering & Search (NEW)', () => {
       });
     });
 
-    it('deve filtrar por assigneeId', async () => {
+    it('filtra por assigneeId', async () => {
       const query: ListIncidentsDto = { assigneeId: 'user-1' };
       prisma.incident.findMany.mockResolvedValue([mockIncidents[0]]);
 
@@ -133,7 +145,7 @@ describe('IncidentsService - Filtering & Search (NEW)', () => {
       });
     });
 
-    it('deve filtrar por teamId', async () => {
+    it('filtra por teamId', async () => {
       const query: ListIncidentsDto = { teamId: 'team-1' };
       prisma.incident.findMany.mockResolvedValue([mockIncidents[0], mockIncidents[2]]);
 
@@ -146,7 +158,7 @@ describe('IncidentsService - Filtering & Search (NEW)', () => {
       });
     });
 
-    it('deve filtrar por primaryServiceId', async () => {
+    it('filtra por primaryServiceId', async () => {
       const query: ListIncidentsDto = { primaryServiceId: 'svc-1' };
       prisma.incident.findMany.mockResolvedValue([mockIncidents[0]]);
 
@@ -159,7 +171,7 @@ describe('IncidentsService - Filtering & Search (NEW)', () => {
       });
     });
 
-    it('deve filtrar por primaryServiceKey e resolver para ID', async () => {
+    it('filtra por primaryServiceKey e resolve para ID', async () => {
       const query: ListIncidentsDto = { primaryServiceKey: 'postgres' };
       prisma.service.findUnique.mockResolvedValue({ id: 'svc-1', key: 'postgres' });
       prisma.incident.findMany.mockResolvedValue([mockIncidents[0]]);
@@ -178,7 +190,7 @@ describe('IncidentsService - Filtering & Search (NEW)', () => {
       });
     });
 
-    it('deve retornar vazio se primaryServiceKey não existir', async () => {
+    it('retorna vazio se primaryServiceKey não existir', async () => {
       const query: ListIncidentsDto = { primaryServiceKey: 'nonexistent' };
       prisma.service.findUnique.mockResolvedValue(null);
 
@@ -189,7 +201,7 @@ describe('IncidentsService - Filtering & Search (NEW)', () => {
   });
 
   describe('findAll with search', () => {
-    it('deve pesquisar por title (case-insensitive)', async () => {
+    it('pesquisa por title/description (case-insensitive)', async () => {
       const query: ListIncidentsDto = { search: 'database' };
       prisma.incident.findMany.mockResolvedValue([mockIncidents[0]]);
 
@@ -206,28 +218,10 @@ describe('IncidentsService - Filtering & Search (NEW)', () => {
         include: expect.any(Object),
       });
     });
-
-    it('deve pesquisar por description (case-insensitive)', async () => {
-      const query: ListIncidentsDto = { search: 'responding' };
-      prisma.incident.findMany.mockResolvedValue([mockIncidents[0]]);
-
-      await service.findAll(query);
-
-      expect(prisma.incident.findMany).toHaveBeenCalledWith({
-        where: expect.objectContaining({
-          OR: [
-            { title: { contains: 'responding', mode: 'insensitive' } },
-            { description: { contains: 'responding', mode: 'insensitive' } },
-          ],
-        }),
-        orderBy: { createdAt: 'desc' },
-        include: expect.any(Object),
-      });
-    });
   });
 
   describe('findAll with combined filters', () => {
-    it('deve combinar status + severity + search', async () => {
+    it('combina status + severity + search', async () => {
       const query: ListIncidentsDto = {
         status: IncidentStatus.NEW,
         severity: Severity.SEV1,
@@ -251,7 +245,7 @@ describe('IncidentsService - Filtering & Search (NEW)', () => {
       });
     });
 
-    it('deve combinar teamId + status + primaryServiceKey', async () => {
+    it('combina teamId + status + primaryServiceKey', async () => {
       const query: ListIncidentsDto = {
         teamId: 'team-1',
         status: IncidentStatus.NEW,
@@ -275,7 +269,7 @@ describe('IncidentsService - Filtering & Search (NEW)', () => {
   });
 
   describe('findAll with date range', () => {
-    it('deve filtrar por createdFrom', async () => {
+    it('filtra por createdFrom', async () => {
       const from = new Date('2024-12-02');
       const query: ListIncidentsDto = { createdFrom: from };
       prisma.incident.findMany.mockResolvedValue([mockIncidents[1], mockIncidents[2]]);
@@ -291,7 +285,7 @@ describe('IncidentsService - Filtering & Search (NEW)', () => {
       });
     });
 
-    it('deve filtrar por createdTo', async () => {
+    it('filtra por createdTo', async () => {
       const to = new Date('2024-12-02');
       const query: ListIncidentsDto = { createdTo: to };
       prisma.incident.findMany.mockResolvedValue([mockIncidents[0], mockIncidents[1]]);
@@ -307,7 +301,7 @@ describe('IncidentsService - Filtering & Search (NEW)', () => {
       });
     });
 
-    it('deve filtrar por range (createdFrom and createdTo)', async () => {
+    it('filtra por range (createdFrom e createdTo)', async () => {
       const from = new Date('2024-12-01');
       const to = new Date('2024-12-02');
       const query: ListIncidentsDto = { createdFrom: from, createdTo: to };
@@ -317,10 +311,7 @@ describe('IncidentsService - Filtering & Search (NEW)', () => {
 
       expect(prisma.incident.findMany).toHaveBeenCalledWith({
         where: expect.objectContaining({
-          createdAt: {
-            gte: from,
-            lte: to,
-          },
+          createdAt: { gte: from, lte: to },
         }),
         orderBy: { createdAt: 'desc' },
         include: expect.any(Object),

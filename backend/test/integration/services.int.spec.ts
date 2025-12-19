@@ -1,4 +1,21 @@
-// test/integration/services.int.spec.ts
+/**
+ * @file services.int.spec.ts
+ * @module test/integration/services
+ *
+ * @summary
+ *  - Testes de integração do ServicesService: listagem, filtros e lookups (key/id).
+ *
+ * @description
+ *  Exercita o service diretamente com DB real:
+ *  - list retorna serviços;
+ *  - filtro por `q` (key/name) e por `isActive`;
+ *  - lookup por key e por id;
+ *  - comportamento de NotFound quando o service não existe.
+ *
+ * @notes
+ *  - O teste tolera diferenças de assinatura: `list`, `findAll`, `findByKey/getByKey`, `findById/getById`.
+ */
+
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../../src/app.module';
 import { PrismaService } from '../../src/prisma/prisma.service';
@@ -116,8 +133,6 @@ describe('Services (integration)', () => {
 
     expect(Array.isArray(res)).toBe(true);
     expect(res.length).toBeGreaterThan(0);
-
-    // assert forte: não pode vir nenhum inativo
     expect(res.some((s: any) => s.isActive === false)).toBe(false);
   });
 
@@ -164,7 +179,7 @@ describe('Services (integration)', () => {
       return;
     }
 
-    // fallback "sem service"
+    // Fallback sem service: valida diretamente na DB
     const db = await prisma.service.findUnique({ where: { key: 'nope' } });
     expect(db).toBeNull();
   });

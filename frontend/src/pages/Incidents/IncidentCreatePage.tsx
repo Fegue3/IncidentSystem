@@ -1,12 +1,44 @@
+/**
+ * @file IncidentCreatePage.tsx
+ * @module pages/Incidents/IncidentCreatePage
+ *
+ * @summary
+ *  - Página de criação de incidentes: recolhe título/descrição/severidade/serviço e opcionalmente owner inicial.
+ *
+ * @description
+ *  - Fluxo:
+ *    1) Carrega “me” (UsersAPI.me) para obter contexto do utilizador (incl. teamId quando existir).
+ *    2) Carrega serviços ativos (ServicesAPI.list({ isActive: true })) e exige seleção de serviço.
+ *    3) Valida inputs (título/descrição, limites e serviço obrigatório).
+ *    4) Cria incidente via IncidentsAPI.create().
+ *    5) Redireciona para `/incidents/:id`.
+ *
+ *  - Team selection:
+ *    - Usa (por ordem):
+ *      1) `me.team.id` (quando disponível)
+ *      2) `localStorage[selectedTeamId]` (preferência UI)
+ *      3) undefined (sem equipa)
+ *
+ * @dependencies
+ *  - `react-router-dom`: navegação
+ *  - `IncidentsAPI`: create
+ *  - `UsersAPI`: me (contexto do utilizador)
+ *  - `ServicesAPI`: serviços ativos
+ *  - `AuthContext`: user.id para “atribuir a mim”
+ *
+ * @security
+ *  - O backend valida permissões e autenticação; a UI assume sessão existente para criar.
+ *
+ * @errors
+ *  - `servicesError`: falha ao carregar serviços
+ *  - `error`: validações locais e falha de criação
+ */
+
 import type { FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "./IncidentCreatePage.css";
-import {
-  IncidentsAPI,
-  type SeverityCode,
-  getSeverityLabel,
-} from "../../services/incidents";
+import { IncidentsAPI, type SeverityCode, getSeverityLabel } from "../../services/incidents";
 import { UsersAPI, type Me } from "../../services/users";
 import { useAuth } from "../../context/AuthContext";
 import { ServicesAPI, type ServiceLite } from "../../services/services";
@@ -44,10 +76,16 @@ export function IncidentCreatePage() {
   const [servicesError, setServicesError] = useState<string | null>(null);
   const [primaryServiceId, setPrimaryServiceId] = useState<string>("");
 
+  /**
+   * Lista ordenada por nome para o dropdown.
+   */
   const servicesSorted = useMemo(() => {
     return [...services].sort((a, b) => a.name.localeCompare(b.name));
   }, [services]);
 
+  /**
+   * Carrega o utilizador atual (para inferir equipa e permitir “atribuir a mim”).
+   */
   useEffect(() => {
     let active = true;
 
@@ -65,6 +103,9 @@ export function IncidentCreatePage() {
     };
   }, []);
 
+  /**
+   * Carrega serviços ativos e pré-seleciona se existir apenas 1.
+   */
   useEffect(() => {
     let active = true;
 
@@ -83,9 +124,7 @@ export function IncidentCreatePage() {
         }
       } catch (err: unknown) {
         const msg =
-          err instanceof Error
-            ? err.message
-            : "Não foi possível carregar a lista de serviços.";
+          err instanceof Error ? err.message : "Não foi possível carregar a lista de serviços.";
         if (active) setServicesError(msg);
       } finally {
         if (active) setServicesLoading(false);
@@ -99,6 +138,13 @@ export function IncidentCreatePage() {
     };
   }, []);
 
+  /**
+   * Submit do formulário:
+   * - valida inputs
+   * - resolve teamId e assigneeId inicial
+   * - cria incidente
+   * - navega para o detalhe
+   */
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
 
@@ -116,9 +162,7 @@ export function IncidentCreatePage() {
     }
 
     if (cleanDescription.length > DESCRIPTION_MAX_LENGTH) {
-      setError(
-        `A descrição não pode ter mais de ${DESCRIPTION_MAX_LENGTH} caracteres.`
-      );
+      setError(`A descrição não pode ter mais de ${DESCRIPTION_MAX_LENGTH} caracteres.`);
       return;
     }
 
@@ -131,9 +175,7 @@ export function IncidentCreatePage() {
     setError(null);
 
     try {
-      const selectedTeamFromStorage =
-        localStorage.getItem(TEAM_STORAGE_KEY) ?? undefined;
-
+      const selectedTeamFromStorage = localStorage.getItem(TEAM_STORAGE_KEY) ?? undefined;
       const teamId = me?.team?.id ?? selectedTeamFromStorage ?? undefined;
 
       let assigneeId: string | undefined;
@@ -152,8 +194,7 @@ export function IncidentCreatePage() {
 
       navigate(`/incidents/${incident.id}`, { replace: true });
     } catch (err: unknown) {
-      const msg =
-        err instanceof Error ? err.message : "Não foi possível criar o incidente.";
+      const msg = err instanceof Error ? err.message : "Não foi possível criar o incidente.";
       setError(msg);
     } finally {
       setSubmitting(false);
@@ -170,8 +211,8 @@ export function IncidentCreatePage() {
         <p className="incident-create__eyebrow">Incidentes</p>
         <h1 className="incident-create__title">Novo incidente</h1>
         <p className="incident-create__subtitle">
-          Regista um novo incidente com informação suficiente para que a equipa
-          responsável possa investigar e resolver o problema.
+          Regista um novo incidente com informação suficiente para que a equipa responsável possa investigar e resolver
+          o problema.
         </p>
       </header>
 
@@ -213,15 +254,12 @@ export function IncidentCreatePage() {
                 disabled={servicesLoading || submitting || services.length === 0}
               >
                 {servicesLoading && <option value="">A carregar serviços…</option>}
-                {!servicesLoading && servicesSorted.length === 0 && (
-                  <option value="">Sem serviços ativos</option>
-                )}
+                {!servicesLoading && servicesSorted.length === 0 && <option value="">Sem serviços ativos</option>}
                 {!servicesLoading && servicesSorted.length > 0 && (
                   <>
                     <option value="">Seleciona um serviço…</option>
                     {servicesSorted.map((s) => {
-                      const owner =
-                        s.ownerTeam?.name ? ` · ${s.ownerTeam.name}` : "";
+                      const owner = s.ownerTeam?.name ? ` · ${s.ownerTeam.name}` : "";
                       return (
                         <option key={s.id} value={s.id}>
                           {s.name} ({s.key}){owner}
@@ -251,20 +289,16 @@ export function IncidentCreatePage() {
                 onChange={(e) => setSeverity(e.target.value as SeverityCode)}
                 disabled={submitting}
               >
-                {(["SEV1", "SEV2", "SEV3", "SEV4"] as SeverityCode[]).map(
-                  (code) => (
-                    <option key={code} value={code}>
-                      {getSeverityLabel(code)}
-                    </option>
-                  )
-                )}
+                {(["SEV1", "SEV2", "SEV3", "SEV4"] as SeverityCode[]).map((code) => (
+                  <option key={code} value={code}>
+                    {getSeverityLabel(code)}
+                  </option>
+                ))}
               </select>
             </label>
 
             <div className="incident-create__owner">
-              <span className="form-field__label">
-                Responsável inicial (opcional)
-              </span>
+              <span className="form-field__label">Responsável inicial (opcional)</span>
               <p className="form-field__hint">
                 Podes deixar o incidente sem owner ou assumir já a responsabilidade.
               </p>
@@ -307,12 +341,7 @@ export function IncidentCreatePage() {
         )}
 
         <div className="incident-create__actions">
-          <button
-            type="button"
-            className="incident-btn incident-btn--ghost"
-            onClick={handleCancel}
-            disabled={submitting}
-          >
+          <button type="button" className="incident-btn incident-btn--ghost" onClick={handleCancel} disabled={submitting}>
             Cancelar
           </button>
           <button

@@ -1,4 +1,24 @@
-// test/integration/reports.export.int.spec.ts
+/**
+ * @file reports.export.int.spec.ts
+ * @module test/integration/reports.export
+ *
+ * @summary
+ *  - Teste de integração do export CSV do ReportsService (com PrismaClient real).
+ *
+ * @description
+ *  Cria fixtures mínimas na DB e valida que:
+ *  - o CSV contém header esperado;
+ *  - o CSV contém uma linha com o incidente criado.
+ *
+ * @dependencies
+ *  - PrismaClient real (ligação direta à DB de teste).
+ *  - resetDb (TRUNCATE): isolamento.
+ *  - ReportsService: instanciado com prisma (via constructor).
+ *
+ * @notes
+ *  - O user é passado como ADMIN para evitar restrições de scoping/roles em reports.
+ */
+
 import { PrismaClient, IncidentStatus, Severity } from '@prisma/client';
 import { resetDb } from './_helpers/prisma-reset';
 import { ReportsService } from '../../src/reports/reports.service';
@@ -46,7 +66,7 @@ describe('Reports CSV (integration)', () => {
 
     const header = csv.split('\n')[0];
 
-    // ✅ header atual (compatível com o que o teu service está a devolver agora)
+    // Header esperado conforme formato atual do export
     expect(header).toContain(
       'id,createdAt,title,severity,status,team,service,assignee,reporter,mttrSeconds,slaTargetSeconds,slaMet,capaCount,resolvedAt,closedAt,categories,tags',
     );

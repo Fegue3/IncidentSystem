@@ -1,3 +1,27 @@
+/**
+ * @file incidents.int.spec.ts
+ * @module test/integration/incidents
+ *
+ * @summary
+ *  - Testes de integração do IncidentsService (create, changeStatus, comments, delete).
+ *
+ * @description
+ *  Exercita regras de domínio e persistência:
+ *  - create aplica defaults (status NEW, severity SEV3) e cria timeline STATUS_CHANGE;
+ *  - reporter é automaticamente subscrito (notificationSubscription);
+ *  - changeStatus aplica validações de transição e cria timeline + timestamps (triagedAt);
+ *  - addComment cria comment e timeline COMMENT;
+ *  - delete é permitido apenas ao reporter (Forbidden caso contrário).
+ *
+ * @dependencies
+ *  - AppModule: providers reais.
+ *  - PrismaService: asserts diretos e leitura de timeline/subscriptions.
+ *  - resetDb: isolamento determinístico.
+ *
+ * @security
+ *  - Permissões de domínio (reporter-only) são verificadas ao nível de service.
+ */
+
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../../src/app.module';
 import { PrismaService } from '../../src/prisma/prisma.service';
@@ -53,7 +77,7 @@ describe('Incidents (integration)', () => {
       {
         title: 'DB down',
         description: 'Database unreachable',
-        severity: undefined, // default
+        severity: undefined, // default esperado
         assigneeId: assignee.id,
         teamId: team.id,
         categoryIds: [],
@@ -90,7 +114,13 @@ describe('Incidents (integration)', () => {
     const reporter = await users.create('rep2@test.com', 'Pass1!', 'Rep2');
 
     const inc = await incidents.create(
-      { title: 'Latency', description: 'High latency', severity: Severity.SEV2, categoryIds: [], tagIds: [] } as any,
+      {
+        title: 'Latency',
+        description: 'High latency',
+        severity: Severity.SEV2,
+        categoryIds: [],
+        tagIds: [],
+      } as any,
       reporter.id,
     );
 
@@ -165,7 +195,9 @@ describe('Incidents (integration)', () => {
       reporter.id,
     );
 
-    await expect(incidents.delete(inc.id, other.id)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(incidents.delete(inc.id, other.id)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
 
     const ok = await incidents.delete(inc.id, reporter.id);
     expect(ok).toEqual({ deleted: true });

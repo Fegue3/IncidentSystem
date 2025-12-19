@@ -1,20 +1,47 @@
+// test/unit/incidents.service.spec.ts
+/**
+ * Unit tests: IncidentsService
+ *
+ * O que este ficheiro valida:
+ * - create(): defaults (SEV3 + NEW) e side-effects (timeline + subscription)
+ * - findAll(): construção correta do "where" com filtros + pesquisa + range
+ * - findOne(): devolve incidente / lança NotFound
+ * - update(): atualiza dados, limpa relações (categories), e regista eventos (createMany)
+ * - changeStatus(): transições válidas/ inválidas + campos de timestamps (triagedAt)
+ * - addComment(): cria comment + evento de timeline
+ * - listComments()/listTimeline(): queries e includes corretos
+ * - subscribe()/unsubscribe(): idempotência e remoção
+ *
+ * Nota importante:
+ * - O Prisma é mockado com um client "normal" e um client "tx" (prisma.__tx),
+ *   porque o service usa $transaction com callback.
+ */
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import { Test, TestingModule } from '@nestjs/testing';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { IncidentStatus, Severity, TimelineEventType } from '@prisma/client';
+
 import { IncidentsService } from '../../src/incidents/incidents.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { NotificationsService } from '../../src/notifications/notifications.service';
+
 import { CreateIncidentDto } from '../../src/incidents/dto/create-incident.dto';
 import { UpdateIncidentDto } from '../../src/incidents/dto/update-incident.dto';
 import { ChangeStatusDto } from '../../src/incidents/dto/change-status.dto';
 import { AddCommentDto } from '../../src/incidents/dto/add-comment.dto';
 import { ListIncidentsDto } from '../../src/incidents/dto/list-incidents.dto';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 describe('IncidentsService', () => {
   let service: IncidentsService;
   let prisma: any;
 
   beforeEach(async () => {
+    /**
+     * "tx" representa o PrismaClient dentro da transação.
+     * O service (neste projeto) faz prisma.$transaction(async (tx) => { ... }).
+     */
     const tx: any = {
       incident: {
         create: jest.fn(),
@@ -22,7 +49,7 @@ describe('IncidentsService', () => {
       },
       incidentTimelineEvent: {
         create: jest.fn(),
-        createMany: jest.fn(), // ✅ FIX
+        createMany: jest.fn(), // ✅ FIX: alguns updates geram múltiplos eventos
         findMany: jest.fn(),
       },
       incidentComment: {
@@ -42,6 +69,12 @@ describe('IncidentsService', () => {
       },
     };
 
+    /**
+     * "prismaMock" representa o PrismaService injetado no service.
+     * - Operações fora de transação: prisma.incident.findMany, etc.
+     * - Dentro de transação: o callback recebe "tx"; expomos tx em prisma.__tx
+     *   para podermos inspecionar chamadas (expect(prisma.__tx...)).
+     */
     const prismaMock: any = {
       incident: {
         create: jest.fn(),
@@ -71,6 +104,11 @@ describe('IncidentsService', () => {
       categoryOnIncident: {
         deleteMany: jest.fn(),
       },
+      /**
+       * $transaction mock:
+       * - se receber função: chama com "tx"
+       * - se receber array: Promise.all
+       */
       $transaction: jest.fn(async (arg: any) => {
         if (typeof arg === 'function') return arg(tx);
         return Promise.all(arg);
@@ -81,13 +119,11 @@ describe('IncidentsService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         IncidentsService,
-        {
-          provide: PrismaService,
-          useValue: prismaMock,
-        },
+        { provide: PrismaService, useValue: prismaMock },
         {
           provide: NotificationsService,
           useValue: {
+            // notifications são side-effects; aqui queremos só garantir que não quebram o fluxo
             sendDiscord: jest.fn().mockResolvedValue({ ok: true }),
             triggerPagerDuty: jest.fn().mockResolvedValue({ ok: true }),
           },
@@ -107,7 +143,7 @@ describe('IncidentsService', () => {
     const dto: CreateIncidentDto = {
       title: 'DB down',
       description: 'Database unreachable',
-      severity: undefined,
+      severity: undefined, // força default do service
       assigneeId: 'user-2',
       teamId: 'team-1',
       categoryIds: ['cat-1'],
@@ -131,6 +167,7 @@ describe('IncidentsService', () => {
 
     await service.create(dto, 'user-1');
 
+    // ✅ valida defaults e includes
     expect(prisma.__tx.incident.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         title: dto.title,
@@ -147,6 +184,7 @@ describe('IncidentsService', () => {
       },
     });
 
+    // ✅ valida evento de status inicial (NEW)
     expect(prisma.__tx.incidentTimelineEvent.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         incidentId: 'inc-1',
@@ -157,6 +195,7 @@ describe('IncidentsService', () => {
       }),
     });
 
+    // ✅ reporter fica automaticamente subscribed
     expect(prisma.__tx.notificationSubscription.create).toHaveBeenCalledWith({
       data: { userId: 'user-1', incidentId: 'inc-1' },
     });
@@ -177,6 +216,7 @@ describe('IncidentsService', () => {
 
     await service.findAll(query);
 
+    // ✅ valida construção do where com OR (title/description) e range createdAt
     expect(prisma.incident.findMany).toHaveBeenCalledWith({
       where: {
         status: IncidentStatus.NEW,
@@ -217,9 +257,7 @@ describe('IncidentsService', () => {
   it('deve lançar NotFoundException se incidente não existir em findOne', async () => {
     prisma.incident.findUnique.mockResolvedValue(null);
 
-    await expect(service.findOne('inc-x')).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(service.findOne('inc-x')).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('deve atualizar incidente e registar evento de FIELD_UPDATE', async () => {
@@ -242,6 +280,7 @@ describe('IncidentsService', () => {
       primaryServiceId: null,
     } as any);
 
+    // ✅ remove ligações antigas para categories antes de re-ligar
     prisma.categoryOnIncident.deleteMany.mockResolvedValue({ count: 2 } as any);
 
     prisma.__tx.incident.update.mockResolvedValue({
@@ -274,7 +313,7 @@ describe('IncidentsService', () => {
       },
     });
 
-    // ✅ FIX: agora é createMany
+    // ✅ eventos de atualização de campos (bulk)
     expect(prisma.__tx.incidentTimelineEvent.createMany).toHaveBeenCalledWith({
       data: expect.arrayContaining([
         expect.objectContaining({
@@ -289,9 +328,7 @@ describe('IncidentsService', () => {
   });
 
   it('deve registar evento de ASSIGNMENT quando muda o responsável', async () => {
-    const dto: UpdateIncidentDto = {
-      assigneeId: 'user-2',
-    } as any;
+    const dto: UpdateIncidentDto = { assigneeId: 'user-2' } as any;
 
     prisma.incident.findUnique.mockResolvedValue({
       id: 'inc-1',
@@ -315,7 +352,7 @@ describe('IncidentsService', () => {
 
     await service.update('inc-1', dto, 'user-1');
 
-    // ✅ FIX: agora é createMany
+    // ✅ evento de mudança de assignee (bulk)
     expect(prisma.__tx.incidentTimelineEvent.createMany).toHaveBeenCalledWith({
       data: expect.arrayContaining([
         expect.objectContaining({
@@ -330,9 +367,9 @@ describe('IncidentsService', () => {
   it('deve lançar NotFoundException ao atualizar incidente inexistente', async () => {
     prisma.incident.findUnique.mockResolvedValue(null);
 
-    await expect(
-      service.update('inc-x', {} as UpdateIncidentDto, 'user-1'),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.update('inc-x', {} as UpdateIncidentDto, 'user-1')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 
   it('deve mudar status NEW -> TRIAGED e preencher triagedAt', async () => {
@@ -347,6 +384,7 @@ describe('IncidentsService', () => {
       triagedAt: null,
     } as any);
 
+    // mock para refletir triagedAt atribuído no update
     prisma.incident.update.mockImplementation(async ({ data }: any) => ({
       id: 'inc-1',
       status: dto.newStatus,
@@ -387,20 +425,15 @@ describe('IncidentsService', () => {
       status: IncidentStatus.NEW,
     } as any);
 
-    await expect(
-      service.changeStatus('inc-1', dto, 'user-1'),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.changeStatus('inc-1', dto, 'user-1')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
   });
 
   it('deve adicionar comentário e criar evento de COMMENT', async () => {
-    prisma.incident.findUnique.mockResolvedValue({
-      id: 'inc-1',
-    } as any);
+    prisma.incident.findUnique.mockResolvedValue({ id: 'inc-1' } as any);
 
-    const commentResult = {
-      id: 'comment-1',
-      body: 'isto está a arder',
-    };
+    const commentResult = { id: 'comment-1', body: 'isto está a arder' };
 
     prisma.incidentComment.create.mockResolvedValue(commentResult as any);
     prisma.incidentTimelineEvent.create.mockResolvedValue({} as any);
@@ -432,9 +465,9 @@ describe('IncidentsService', () => {
   it('deve lançar NotFound ao adicionar comentário a incidente inexistente', async () => {
     prisma.incident.findUnique.mockResolvedValue(null);
 
-    await expect(
-      service.addComment('inc-x', { body: 'ola' }, 'user-1'),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.addComment('inc-x', { body: 'ola' }, 'user-1')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 
   it('deve listar comentários', async () => {
@@ -473,18 +506,13 @@ describe('IncidentsService', () => {
       where: { userId: 'user-1', incidentId: 'inc-1' },
     });
     expect(prisma.notificationSubscription.create).toHaveBeenCalledWith({
-      data: {
-        userId: 'user-1',
-        incidentId: 'inc-1',
-      },
+      data: { userId: 'user-1', incidentId: 'inc-1' },
     });
     expect(result).toEqual({ subscribed: true });
   });
 
   it('não deve criar subscription se já existir', async () => {
-    prisma.notificationSubscription.findFirst.mockResolvedValue({
-      id: 'sub-1',
-    } as any);
+    prisma.notificationSubscription.findFirst.mockResolvedValue({ id: 'sub-1' } as any);
 
     const result = await service.subscribe('inc-1', 'user-1');
 
@@ -493,17 +521,12 @@ describe('IncidentsService', () => {
   });
 
   it('deve remover subscription em unsubscribe', async () => {
-    prisma.notificationSubscription.deleteMany.mockResolvedValue({
-      count: 1,
-    } as any);
+    prisma.notificationSubscription.deleteMany.mockResolvedValue({ count: 1 } as any);
 
     const result = await service.unsubscribe('inc-1', 'user-1');
 
     expect(prisma.notificationSubscription.deleteMany).toHaveBeenCalledWith({
-      where: {
-        userId: 'user-1',
-        incidentId: 'inc-1',
-      },
+      where: { userId: 'user-1', incidentId: 'inc-1' },
     });
     expect(result).toEqual({ subscribed: false });
   });

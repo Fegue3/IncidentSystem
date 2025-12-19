@@ -1,3 +1,21 @@
+/**
+ * @file test/unit/incident-audit.spec.ts
+ * @module tests/unit/incident-audit
+ *
+ * @summary
+ *  - Testes unitários com cobertura total do utilitário de auditoria de incidentes.
+ *
+ * @description
+ *  - Valida funções puras (stringify determinístico, HMAC) e helpers de auditoria
+ *    que calculam e persistem auditHash na entidade Incident (via Prisma-like).
+ *
+ * @dependencies
+ *  - incident-audit (src/audit/incident-audit): módulo testado.
+ *  - PrismaLike: interface parcial usada para injetar mocks de prisma.
+ *
+ * @security
+ *  - HMAC secret é obrigatório para produzir hashes; ensureIncidentAuditHash ignora se secret ausente.
+ */
 import {
   stableStringify,
   computeHmacSha256Hex,
@@ -7,7 +25,7 @@ import {
   type PrismaLike,
 } from '../../src/audit/incident-audit';
 
-describe('incident-audit (100% coverage)', () => {
+describe('incident-audit (unit)', () => {
   describe('stableStringify', () => {
     it('é determinístico (ordem de keys não muda output) + arrays preservam ordem', () => {
       const a = { b: 1, a: 2, c: { z: 9, y: 8 }, arr: [3, { k: 'v' }, 1] };
@@ -32,13 +50,10 @@ describe('incident-audit (100% coverage)', () => {
       const obj: any = { a: 1 };
       obj.self = obj;
 
-      expect(() => stableStringify(obj)).toThrow(
-        'stableStringify: circular structure',
-      );
+      expect(() => stableStringify(obj)).toThrow('stableStringify: circular structure');
     });
 
     it('datas inválidas acabam como null (via ISO)', () => {
-      // Date inválida => iso() retorna null
       const bad = new Date('not-a-date');
       expect(stableStringify({ bad })).toBe(`{"bad":null}`);
     });
@@ -79,15 +94,14 @@ describe('incident-audit (100% coverage)', () => {
         status: 'NEW',
         severity: 'SEV3',
         reporterId: 'r1',
-        assigneeId: undefined, // vira null
-        teamId: undefined, // vira null
-        primaryServiceId: undefined, // vira null
+        assigneeId: undefined,
+        teamId: undefined,
+        primaryServiceId: undefined,
         triagedAt: null,
         inProgressAt: undefined,
         resolvedAt: '2025-01-02T00:00:00.000Z',
         closedAt: new Date('2025-01-03T00:00:00.000Z'),
         createdAt: '2025-01-01T00:00:00.000Z',
-
         categories: [
           { categoryId: 'b', assignedAt: '2025-01-02T00:00:00.000Z', category: { id: 'b', name: 'B' } },
           { categoryId: 'a', assignedAt: '2025-01-01T00:00:00.000Z', category: { id: 'a', name: 'A' } },
@@ -132,7 +146,6 @@ describe('incident-audit (100% coverage)', () => {
 
       const payload = buildIncidentAuditPayload(incident);
 
-      // core null-normalization + iso
       expect(payload.incident.assigneeId).toBeNull();
       expect(payload.incident.teamId).toBeNull();
       expect(payload.incident.primaryServiceId).toBeNull();
@@ -142,7 +155,6 @@ describe('incident-audit (100% coverage)', () => {
       expect(payload.incident.closedAt).toBe('2025-01-03T00:00:00.000Z');
       expect(payload.incident.createdAt).toBe('2025-01-01T00:00:00.000Z');
 
-      // ordering checks
       expect(payload.categories.map((x: any) => x.categoryId)).toEqual(['a', 'b']);
       expect(payload.tags.map((x: any) => x.label)).toEqual(['aaa', 'zzz']);
       expect(payload.timeline.map((x: any) => x.id)).toEqual(['1', '2']);
@@ -180,9 +192,9 @@ describe('incident-audit (100% coverage)', () => {
         },
       };
 
-      await expect(
-        computeIncidentAuditHash(prisma, 'missing', 'secret'),
-      ).rejects.toThrow('Incident not found for audit');
+      await expect(computeIncidentAuditHash(prisma, 'missing', 'secret')).rejects.toThrow(
+        'Incident not found for audit',
+      );
     });
 
     it('devolve hash + canonical + payloadObj quando existe', async () => {

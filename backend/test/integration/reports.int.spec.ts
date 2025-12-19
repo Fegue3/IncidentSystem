@@ -1,3 +1,25 @@
+/**
+ * @file reports.int.spec.ts
+ * @module test/integration/reports
+ *
+ * @summary
+ *  - Testes de integração do ReportsService (KPIs, breakdown e timeseries).
+ *
+ * @description
+ *  Usa PrismaClient real e DB real para validar:
+ *  - KPIs: open/resolved/closed + MTTR (avg/median/p90) + SLA compliance;
+ *  - breakdown por categoria (labels e contagens);
+ *  - timeseries por dia (buckets e contagens).
+ *
+ * @dependencies
+ *  - PrismaClient real.
+ *  - resetDb (TRUNCATE).
+ *  - ReportsService.
+ *
+ * @notes
+ *  - Este ficheiro usa datas fixas em UTC para métricas determinísticas.
+ */
+
 import { PrismaClient, IncidentStatus, Severity } from '@prisma/client';
 import { resetDb } from './_helpers/prisma-reset';
 import { ReportsService } from '../../src/reports/reports.service';
@@ -44,17 +66,17 @@ describe('Reports (integration)', () => {
     const catNet = await prisma.category.create({ data: { name: 'Network' } });
     const catDb = await prisma.category.create({ data: { name: 'Database' } });
 
-    // datas fixas (UTC) para dar valores exatos
+    // Datas fixas (UTC) para métricas determinísticas
     const i1Created = new Date('2025-01-01T00:00:00.000Z');
-    const i1Resolved = new Date('2025-01-01T00:30:00.000Z'); // 1800s (SLA SEV1 ok)
+    const i1Resolved = new Date('2025-01-01T00:30:00.000Z'); // 1800s
 
     const i2Created = new Date('2025-01-01T01:00:00.000Z');
-    const i2Resolved = new Date('2025-01-01T03:00:00.000Z'); // 7200s (SLA SEV1 falha)
+    const i2Resolved = new Date('2025-01-01T03:00:00.000Z'); // 7200s
 
-    const i3Created = new Date('2025-01-02T00:00:00.000Z'); // aberto
+    const i3Created = new Date('2025-01-02T00:00:00.000Z'); // open
 
     const i4Created = new Date('2025-01-02T00:00:00.000Z');
-    const i4Resolved = new Date('2025-01-02T04:00:00.000Z'); // 14400s (SLA SEV3 ok)
+    const i4Resolved = new Date('2025-01-02T04:00:00.000Z'); // 14400s
 
     const inc1 = await prisma.incident.create({
       data: {
@@ -125,14 +147,14 @@ describe('Reports (integration)', () => {
 
     const out = await service.getKpis({}, { id: reporter.id, role: 'ADMIN' });
 
-    expect(out.openCount).toBe(1);     // i3
-    expect(out.resolvedCount).toBe(3); // i1,i2,i4
-    expect(out.closedCount).toBe(1);   // i4
+    expect(out.openCount).toBe(1);
+    expect(out.resolvedCount).toBe(3);
+    expect(out.closedCount).toBe(1);
 
     // MTTR: (1800 + 7200 + 14400) / 3 = 7800
     expect(out.mttrSeconds.avg).toBeCloseTo(7800, 5);
     expect(out.mttrSeconds.median).toBeCloseTo(7200, 5);
-    // p90 percentile_cont(0.9) em [1800,7200,14400] => 12960
+    // p90 em [1800,7200,14400] => 12960 (percentile_cont 0.9)
     expect(out.mttrSeconds.p90).toBeCloseTo(12960, 5);
 
     // SLA: 2/3 => 66.7%
@@ -166,7 +188,6 @@ describe('Reports (integration)', () => {
       { id: reporter.id, role: 'ADMIN' },
     );
 
-    // sem impor ordem, só valida que existem
     expect(out.find((x) => x.label === 'Network')?.count).toBe(1);
     expect(out.find((x) => x.label === 'Database')?.count).toBe(1);
   });

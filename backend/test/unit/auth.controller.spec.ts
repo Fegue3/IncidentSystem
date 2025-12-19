@@ -1,3 +1,26 @@
+/**
+ * @file test/unit/auth.controller.spec.ts
+ * @module tests/unit/auth-controller
+ *
+ * @summary
+ *  - Testes unitários do AuthController (camada HTTP/controller).
+ *
+ * @description
+ *  - Garante que o controller delega corretamente no AuthService.
+ *  - Testa a leitura de dados a partir de:
+ *    - body DTOs (register/login/change/reset),
+ *    - req.user (logout/me/refresh via guard).
+ *
+ * @dependencies
+ *  - @nestjs/testing: instância isolada do controller.
+ *  - AuthService: mockado para validar delegação e argumentos.
+ *
+ * @security
+ *  - Os guards não são executados aqui; simulamos req.user como payload autenticado.
+ *
+ * @testability
+ *  - Testes focados em: "inputs do controller -> chamada service -> output do controller".
+ */
 import { Test } from '@nestjs/testing';
 import { AuthController } from '../../src/auth/auth.controller';
 import { AuthService } from '../../src/auth/auth.service';
@@ -5,6 +28,10 @@ import { AuthService } from '../../src/auth/auth.service';
 describe('AuthController (unit)', () => {
   let controller: AuthController;
 
+  /**
+   * Password “dummy” apenas para testes.
+   * Não é segredo (não usar em produção).
+   */
   const TEST_PASS = 'TEST_PASSWORD__NOT_A_SECRET';
 
   const authMock = {
@@ -132,10 +159,7 @@ describe('AuthController (unit)', () => {
       newPassword: 'RESET_TEST_PASSWORD__NOT_A_SECRET',
     } as any);
 
-    expect(authMock.resetPassword).toHaveBeenCalledWith(
-      't',
-      'RESET_TEST_PASSWORD__NOT_A_SECRET',
-    );
+    expect(authMock.resetPassword).toHaveBeenCalledWith('t', 'RESET_TEST_PASSWORD__NOT_A_SECRET');
     expect(res).toEqual({ ok: true });
   });
 });

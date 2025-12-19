@@ -1,3 +1,20 @@
+/**
+ * @file services.e2e.spec.ts
+ * @module test/e2e/services.e2e
+ *
+ * @summary
+ *  - Testes E2E para listagem e consulta de Services (com filtros).
+ *
+ * @description
+ *  Valida endpoints `/api/services`:
+ *  - autenticação obrigatória;
+ *  - filtro por `isActive` e pesquisa por `q`;
+ *  - obtenção por `key` e por `id`.
+ *
+ * @notes
+ *  - O resetDb do helper E2E pode não limpar a tabela Service; a suite limpa explicitamente.
+ */
+
 import request from 'supertest';
 import { bootstrapE2E, resetDb, registerUser } from './_helpers/e2e-utils';
 
@@ -8,7 +25,7 @@ describe('Services (e2e)', () => {
     const ctx = await ctxPromise;
     await resetDb(ctx.prisma);
 
-    // ✅ como o resetDb do e2e-utils não apaga Service, limpamos aqui
+    // Nota: se o resetDb do e2e-utils não apagar Service, limpamos aqui
     await ctx.prisma.service.deleteMany({});
 
     await ctx.prisma.team.create({ data: { name: 'SRE' } });

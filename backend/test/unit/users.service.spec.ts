@@ -1,3 +1,21 @@
+// test/unit/users.service.spec.ts
+/**
+ * Unit tests: UsersService
+ *
+ * O que valida:
+ * - create(): falha se email já existe; caso contrário cria com password hash (bcrypt.hash)
+ * - validatePassword(): devolve false/true consoante bcrypt.compare
+ * - changePassword():
+ *   - NotFound se user não existe
+ *   - BadRequest se oldPassword inválida
+ *   - caso ok: hash da nova password + repo.setPassword
+ *
+ * Nota:
+ * - bcrypt é mockado para não depender de hashing real
+ */
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from '../../src/users/users.service';
@@ -30,9 +48,7 @@ describe('UsersService (unit)', () => {
   it('create -> falha se email já existe', async () => {
     repoMock.findByEmail.mockResolvedValueOnce({ id: 'u1' });
 
-    await expect(service.create('a@a.com', 'pass', 'Ana')).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    await expect(service.create('a@a.com', 'pass', 'Ana')).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('create -> cria user com password hash', async () => {
@@ -64,18 +80,14 @@ describe('UsersService (unit)', () => {
   it('changePassword -> NotFound se user não existe', async () => {
     repoMock.findById.mockResolvedValueOnce(null);
 
-    await expect(service.changePassword('u1', 'old', 'new')).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(service.changePassword('u1', 'old', 'new')).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('changePassword -> BadRequest se oldPassword inválida', async () => {
     repoMock.findById.mockResolvedValueOnce({ id: 'u1', password: 'HASH' });
     bcryptMock.compare.mockResolvedValueOnce(false);
 
-    await expect(service.changePassword('u1', 'old', 'new')).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    await expect(service.changePassword('u1', 'old', 'new')).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('changePassword -> ok => setPassword com hash novo', async () => {

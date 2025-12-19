@@ -1,3 +1,17 @@
+/**
+ * @file test/unit/jwt.strategies.spec.ts
+ * @module tests/unit/jwt-strategies
+ *
+ * @summary
+ *  - Testes unitários das estratégias JWT (access + refresh).
+ *
+ * @description
+ *  - AccessJwtStrategy.validate: devolve payload tal como recebido.
+ *  - RefreshJwtStrategy.validate: adiciona refreshToken vindo do body (ou falha se não existir).
+ *
+ * @security
+ *  - A ausência de refresh token deve resultar em UnauthorizedException (throw síncrono).
+ */
 import { UnauthorizedException } from '@nestjs/common';
 import { AccessJwtStrategy } from '../../src/auth/strategies/access-jwt.strategy';
 import { RefreshJwtStrategy } from '../../src/auth/strategies/refresh-jwt.strategy';
@@ -21,10 +35,7 @@ describe('JWT Strategies (unit)', () => {
     const s = new RefreshJwtStrategy();
     const payload = { sub: 'u1', email: 'u@u.com' };
 
-    const out = s.validate(
-      { body: { refreshToken: 'rt' }, headers: {} } as any,
-      payload as any,
-    );
+    const out = s.validate({ body: { refreshToken: 'rt' }, headers: {} } as any, payload as any);
 
     expect(out.sub).toBe('u1');
     expect(out.refreshToken).toBe('rt');

@@ -1,7 +1,14 @@
+// test/unit/reports.service.full.spec.ts
 /**
- * test/unit/reports.service.full.spec.ts
+ * Unit tests: ReportsService (FULL COVERAGE)
  *
- * Goal: hit (practically) every branch/line in ReportsService WITHOUT editing the service.
+ * Objetivo: atingir praticamente todos os ramos/linhas do ReportsService sem editar o service.
+ *
+ * Estratégia:
+ * - Mock "virtual" de pdfkit para permitir gerar PDF em memória sem depender do package real.
+ * - Mock dos helpers de auditoria (ensureIncidentAuditHash/computeIncidentAuditHash).
+ * - Prisma mock com métodos usados pelo ReportsService (count, groupBy, findMany, $queryRaw, etc.).
+ * - Testes chamam métodos privados via (svc as any) para cobrir helpers internos.
  */
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -12,6 +19,13 @@ jest.mock(
   () => {
     type HandlerMap = Record<string, Function[]>;
 
+    /**
+     * Mock minimalista do PDFKit que:
+     * - suporta eventos 'data' e 'end'
+     * - simula paginação (addPage/switchToPage/page.margins)
+     * - fornece métricas de texto (widthOfString/heightOfString) usadas pelo service
+     * - incrementa doc.y em text/moveDown para permitir loops de "paging" avançarem
+     */
     class PDFDocumentMock {
       private handlers: HandlerMap = {};
       private pages: any[] = [];
@@ -186,6 +200,10 @@ import {
   computeIncidentAuditHash,
 } from '../../src/audit/incident-audit';
 
+/**
+ * Prisma mock mínimo para cobrir queries do ReportsService.
+ * Ajusta/adiciona métodos caso o service evolua.
+ */
 function makePrismaMock() {
   return {
     incident: {
@@ -218,13 +236,16 @@ function makePrismaMock() {
   } as any;
 }
 
+/**
+ * Factory de incident fake com overrides para atingir ramos (status/severity/timeline/comments/etc).
+ */
 function makeIncident(overrides: Partial<any> = {}) {
   const base = {
     id: overrides.id ?? 'inc_1',
     title: overrides.title ?? 'Incident title',
     description:
       overrides.description ??
-      'A long description '.repeat(80) + 'END', // force paging paths
+      'A long description '.repeat(80) + 'END', // força paginação em helpers
     severity: overrides.severity ?? Severity.SEV2,
     status: overrides.status ?? IncidentStatus.IN_PROGRESS,
     createdAt: overrides.createdAt ?? new Date('2025-01-01T00:00:00.000Z'),
@@ -235,9 +256,11 @@ function makeIncident(overrides: Partial<any> = {}) {
 
     team: overrides.team ?? { name: 'Team A' },
     reporter:
-      overrides.reporter ?? ({ id: 'u_rep', name: 'Rep', email: 'rep@x.com' } as any),
+      overrides.reporter ??
+      ({ id: 'u_rep', name: 'Rep', email: 'rep@x.com' } as any),
     assignee:
-      overrides.assignee ?? ({ id: 'u_ass', name: 'Ass', email: 'ass@x.com' } as any),
+      overrides.assignee ??
+      ({ id: 'u_ass', name: 'Ass', email: 'ass@x.com' } as any),
 
     primaryService:
       overrides.primaryService ??
@@ -276,7 +299,7 @@ function makeIncident(overrides: Partial<any> = {}) {
         },
         {
           createdAt: new Date('2025-01-01T00:31:00.000Z'),
-          message: 'table comment', // dup to hit dedup
+          message: 'table comment', // dup para cobrir dedup
           author: { name: 'Ana', email: 'ana@x.com' },
         },
         {
@@ -318,44 +341,43 @@ describe('ReportsService (full coverage)', () => {
     // getAuthUserId throws
     expect(() => (svc as any).getAuthUserId(null)).toThrow(ForbiddenException);
 
-    // getAuthRole: 'ADMIN' (string) == Role.ADMIN (Prisma enum value)
+    // getAuthRole: string 'ADMIN' deve contar como admin
     expect((svc as any).getAuthRole({ role: 'ADMIN' as any })).toBe(Role.ADMIN);
     expect((svc as any).getAuthRole({ role: Role.ADMIN as any })).toBe(Role.ADMIN);
 
-    // and any non-admin becomes USER
+    // não-admin => USER
     expect((svc as any).getAuthRole({ role: 'USER' as any })).toBe(Role.USER);
     expect((svc as any).getAuthRole({ role: undefined as any })).toBe(Role.USER);
 
-
-    // resolveTeamScope: admin returns requested
+    // resolveTeamScope: admin usa team pedido
     await expect(
       (svc as any).resolveTeamScope({ id: 'u1', role: Role.ADMIN }, 't_req'),
     ).resolves.toBe('t_req');
 
-    // user with no team
+    // user sem team => forbidden
     prisma.team.findFirst.mockResolvedValueOnce(null);
     await expect(
       (svc as any).resolveTeamScope({ id: 'u1', role: Role.USER }, undefined),
     ).rejects.toThrow(ForbiddenException);
 
-    // user mismatch team
+    // user com team diferente do pedido => forbidden
     prisma.team.findFirst.mockResolvedValueOnce({ id: 't_mine' });
     await expect(
       (svc as any).resolveTeamScope({ id: 'u1', role: Role.USER }, 't_other'),
     ).rejects.toThrow(ForbiddenException);
 
-    // user ok -> returns myTeamId
+    // user ok => retorna a team do próprio
     prisma.team.findFirst.mockResolvedValueOnce({ id: 't_mine' });
     await expect(
       (svc as any).resolveTeamScope({ id: 'u1', role: Role.USER }, 't_mine'),
     ).resolves.toBe('t_mine');
 
-    // assertIncidentExportAllowed
+    // assertIncidentExportAllowed: USER não pode exportar team alheia
     expect(() =>
       (svc as any).assertIncidentExportAllowed(Role.USER, 't_mine', 't_other'),
     ).toThrow(ForbiddenException);
 
-    // ADMIN passes
+    // ADMIN passa sempre
     expect(() =>
       (svc as any).assertIncidentExportAllowed(Role.ADMIN, undefined, 'anything'),
     ).not.toThrow();
@@ -365,16 +387,14 @@ describe('ReportsService (full coverage)', () => {
     const prisma = makePrismaMock();
     const svc = new ReportsService(prisma);
 
-    // clampRangeToMaxDays
     const clamped = (svc as any).clampRangeToMaxDays(
       { from: '2020-01-01T00:00:00.000Z', to: '2020-03-15T00:00:00.000Z' },
       30,
     );
-    expect(new Date(clamped.to).getTime() - new Date(clamped.from).getTime()).toBeLessThanOrEqual(
-      30 * 24 * 60 * 60 * 1000,
-    );
+    expect(
+      new Date(clamped.to).getTime() - new Date(clamped.from).getTime(),
+    ).toBeLessThanOrEqual(30 * 24 * 60 * 60 * 1000);
 
-    // start/end of day UTC
     expect((svc as any).startOfDayUTC('2025-01-02T12:34:56.000Z').toISOString()).toContain(
       'T00:00:00.000Z',
     );
@@ -382,17 +402,14 @@ describe('ReportsService (full coverage)', () => {
       'T23:59:59.999Z',
     );
 
-    // lastNDaysRange
     const r30 = (svc as any).lastNDaysRange('2025-02-01T10:00:00.000Z', 30);
     expect(r30.from.slice(0, 10)).toBe('2025-01-03');
     expect(r30.to.slice(0, 10)).toBe('2025-02-01');
 
-    // resolveRange lifetime / range
     expect((svc as any).resolveRange({})).toEqual({ mode: 'lifetime' });
     const rr = (svc as any).resolveRange({ from: '2025-01-01', to: '2025-01-02' });
     expect(rr.mode).toBe('range');
 
-    // buildIncidentWhere variations
     expect(
       (svc as any).buildIncidentWhere({
         from: '2025-01-01T00:00:00.000Z',
@@ -408,13 +425,11 @@ describe('ReportsService (full coverage)', () => {
       createdAt: expect.any(Object),
     });
 
-    // slaTargetSeconds branches
     expect((svc as any).slaTargetSeconds(Severity.SEV1)).toBe(45 * 60);
     expect((svc as any).slaTargetSeconds(Severity.SEV2)).toBe(2 * 60 * 60);
     expect((svc as any).slaTargetSeconds(Severity.SEV3)).toBe(8 * 60 * 60);
     expect((svc as any).slaTargetSeconds(Severity.SEV4)).toBe(24 * 60 * 60);
 
-    // toNum / fmtDateTime / fmtShortDate
     expect((svc as any).toNum('x')).toBeNull();
     expect((svc as any).toNum(123)).toBe(123);
     expect((svc as any).fmtDateTime(null)).toBe('—');
@@ -423,14 +438,12 @@ describe('ReportsService (full coverage)', () => {
     expect((svc as any).fmtShortDate('not-a-date')).toBe('—');
     expect((svc as any).fmtShortDate('2025-01-01T00:00:00.000Z')).toBe('2025-01-01');
 
-    // humanSeconds / humanHoursFromSeconds branches
     expect((svc as any).humanSeconds(null)).toBe('—');
     expect((svc as any).humanSeconds(30)).toContain('s');
     expect((svc as any).humanSeconds(120)).toContain('min');
     expect((svc as any).humanSeconds(7200)).toContain('h');
     expect((svc as any).humanHoursFromSeconds(3600)).toBe('1.0 h');
 
-    // fillDailySeries (missing days -> 0)
     const filled = (svc as any).fillDailySeries(
       { from: '2025-01-01T00:00:00.000Z', to: '2025-01-03T23:59:59.999Z' },
       [{ date: '2025-01-02T12:00:00.000Z', count: 5 }],
@@ -438,10 +451,8 @@ describe('ReportsService (full coverage)', () => {
     expect(filled).toHaveLength(3);
     expect(filled.map((x: any) => x.count)).toEqual([0, 5, 0]);
 
-    // ticks helpers
     expect((svc as any).niceTickStep(3)).toBe(1);
-    const tSmall = (svc as any).buildYTicks(4);
-    expect(tSmall).toEqual([0, 1, 2, 3, 4]);
+    expect((svc as any).buildYTicks(4)).toEqual([0, 1, 2, 3, 4]);
     const tBig = (svc as any).buildYTicks(99);
     expect(tBig[0]).toBe(0);
     expect(tBig[tBig.length - 1]).toBeGreaterThanOrEqual(99);
@@ -451,11 +462,9 @@ describe('ReportsService (full coverage)', () => {
     const prisma = makePrismaMock();
     const svc = new ReportsService(prisma);
 
-    // Minimal doc instance (from our pdfkit mock)
     const PDFDocument: any = require('pdfkit');
     const doc = new PDFDocument();
 
-    // timelineKind branches
     expect((svc as any).timelineKind('status_change')).toBe('STATUS');
     expect((svc as any).timelineKind('service_update')).toBe('SERVICE');
     expect((svc as any).timelineKind('field_update')).toBe('FIELDS');
@@ -463,7 +472,6 @@ describe('ReportsService (full coverage)', () => {
     expect((svc as any).timelineKind('comment')).toBe('COMMENT');
     expect((svc as any).timelineKind('')).toBe('EVENT');
 
-    // timelineDotColor branches
     expect((svc as any).timelineDotColor('service_update', 'x')).toBeDefined();
     expect((svc as any).timelineDotColor('field_update', 'Serviço definido: API')).toBeDefined();
     expect((svc as any).timelineDotColor('field_update', 'Notificação Discord enviada')).toBeDefined();
@@ -475,7 +483,6 @@ describe('ReportsService (full coverage)', () => {
     expect((svc as any).timelineDotColor('comment', 'x')).toBeDefined();
     expect((svc as any).timelineDotColor('whatever', 'x')).toBeDefined();
 
-    // statusChipStyle branches
     expect((svc as any).statusChipStyle('RESOLVED')).toMatchObject({ fg: expect.any(String) });
     expect((svc as any).statusChipStyle('IN_PROGRESS')).toMatchObject({ fg: expect.any(String) });
     expect((svc as any).statusChipStyle('TRIAGED')).toMatchObject({ fg: expect.any(String) });
@@ -483,17 +490,14 @@ describe('ReportsService (full coverage)', () => {
     expect((svc as any).statusChipStyle('REOPENED')).toMatchObject({ fg: expect.any(String) });
     expect((svc as any).statusChipStyle('CLOSED')).toMatchObject({ fg: expect.any(String) });
 
-    // drawChip
     const chip = (svc as any).drawChip(doc, 10, 10, 'IN_PROGRESS', (svc as any).statusChipStyle('IN_PROGRESS'));
     expect(chip.w).toBeGreaterThan(10);
 
-    // takeFittingChunk / writeTextPaged / writeTextFittingOnce
     const long = 'word '.repeat(500);
     const chunked = (svc as any).takeFittingChunk(doc, long, 120, 60, {});
     expect(chunked.chunk.length).toBeGreaterThan(0);
     expect(chunked.rest.length).toBeGreaterThan(0);
 
-    // empty text fallback
     (svc as any).writeTextPaged(doc, '', 48, 400, {});
     const once = (svc as any).writeTextFittingOnce(doc, long, 48, 200, 36, {});
     expect(typeof once.rest).toBe('string');
@@ -501,7 +505,6 @@ describe('ReportsService (full coverage)', () => {
 
   it('getKpis: calcula open/resolved/closed + mttr + sla', async () => {
     const prisma = makePrismaMock();
-
     prisma.team.findFirst.mockResolvedValue({ id: 't1' });
 
     prisma.incident.count
@@ -510,18 +513,13 @@ describe('ReportsService (full coverage)', () => {
       .mockResolvedValueOnce(3); // closedCount
 
     prisma.$queryRaw
-      .mockResolvedValueOnce([
-        { avg_seconds: 1200, median_seconds: 900, p90_seconds: 3600 },
-      ]) // mttr
-      .mockResolvedValueOnce([{ compliance: 0.875 }]); // sla
+      .mockResolvedValueOnce([{ avg_seconds: 1200, median_seconds: 900, p90_seconds: 3600 }])
+      .mockResolvedValueOnce([{ compliance: 0.875 }]);
 
     const svc = new ReportsService(prisma);
 
     const out = await svc.getKpis(
-      {
-        from: '2025-01-01T00:00:00.000Z',
-        to: '2025-12-31T00:00:00.000Z',
-      },
+      { from: '2025-01-01T00:00:00.000Z', to: '2025-12-31T00:00:00.000Z' },
       { id: 'user1', role: Role.ADMIN },
     );
 
@@ -569,9 +567,7 @@ describe('ReportsService (full coverage)', () => {
       { assigneeId: 'a1', _count: { _all: 3 } },
       { assigneeId: null, _count: { _all: 1 } },
     ]);
-    prisma.user.findMany.mockResolvedValueOnce([
-      { id: 'a1', name: 'Assignee', email: 'a@x.com' },
-    ]);
+    prisma.user.findMany.mockResolvedValueOnce([{ id: 'a1', name: 'Assignee', email: 'a@x.com' }]);
     await expect(
       svc.getBreakdown({ groupBy: ReportsGroupBy.assignee }, { id: 'u', role: Role.ADMIN }),
     ).resolves.toEqual([
@@ -640,9 +636,7 @@ describe('ReportsService (full coverage)', () => {
       { date: '2025-01-02T00:00:00.000Z', count: 5 },
     ]);
 
-    prisma.$queryRaw.mockResolvedValueOnce([
-      { bucket: new Date('2025-01-06T00:00:00.000Z'), count: 10 },
-    ]);
+    prisma.$queryRaw.mockResolvedValueOnce([{ bucket: new Date('2025-01-06T00:00:00.000Z'), count: 10 }]);
 
     const outWeek = await svc.getTimeseries(
       { interval: ReportsInterval.week },
@@ -695,15 +689,13 @@ describe('ReportsService (full coverage)', () => {
     const prisma = makePrismaMock();
     const svc = new ReportsService(prisma);
 
-    // missing currentAuditHash -> ensureIncidentAuditHash called
     await (svc as any).verifyIncidentAuditOrThrow('inc1', null, 'secret');
     expect(ensureIncidentAuditHash).toHaveBeenCalled();
 
-    // mismatch -> creates timeline event + throws ConflictException
     (computeIncidentAuditHash as any).mockResolvedValueOnce({ hash: 'DIFFERENT' });
-    await expect(
-      (svc as any).verifyIncidentAuditOrThrow('inc2', 'HASH_OK', 'secret'),
-    ).rejects.toThrow(ConflictException);
+    await expect((svc as any).verifyIncidentAuditOrThrow('inc2', 'HASH_OK', 'secret')).rejects.toThrow(
+      ConflictException,
+    );
     expect(prisma.incidentTimelineEvent.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         incidentId: 'inc2',
@@ -711,18 +703,14 @@ describe('ReportsService (full coverage)', () => {
       }),
     });
 
-    // match -> no throw
     (computeIncidentAuditHash as any).mockResolvedValueOnce({ hash: 'HASH_OK' });
-    await expect(
-      (svc as any).verifyIncidentAuditOrThrow('inc3', 'HASH_OK', 'secret'),
-    ).resolves.toBeUndefined();
+    await expect((svc as any).verifyIncidentAuditOrThrow('inc3', 'HASH_OK', 'secret')).resolves.toBeUndefined();
   });
 
   it('resolveReportRangeAndLabels: range + lifetime with data + lifetime without data', async () => {
     const prisma = makePrismaMock();
     const svc = new ReportsService(prisma);
 
-    // range
     const a = await (svc as any).resolveReportRangeAndLabels(
       { from: '2025-01-01T00:00:00.000Z', to: '2025-01-05T00:00:00.000Z' },
       't1',
@@ -730,7 +718,6 @@ describe('ReportsService (full coverage)', () => {
     expect(a.resolved.mode).toBe('range');
     expect(a.rangeLabelCard).toContain('2025-01-01');
 
-    // lifetime with data
     prisma.incident.aggregate.mockResolvedValueOnce({
       _min: { createdAt: new Date('2025-01-01T00:00:00.000Z') },
       _max: { createdAt: new Date('2025-02-01T00:00:00.000Z') },
@@ -739,7 +726,6 @@ describe('ReportsService (full coverage)', () => {
     expect(b.resolved.mode).toBe('lifetime');
     expect(b.headerPeriodLine).toContain('lifetime');
 
-    // lifetime without data -> fallback last 30 days
     prisma.incident.aggregate.mockResolvedValueOnce({
       _min: { createdAt: null },
       _max: { createdAt: null },
@@ -756,26 +742,22 @@ describe('ReportsService (full coverage)', () => {
 
     prisma.team.findFirst.mockResolvedValue({ id: 'team_user' });
 
-    // not found
     prisma.incident.findUnique.mockResolvedValueOnce(null);
     await expect(
       svc.exportPdf({ incidentId: 'missing' }, { id: 'u', role: Role.ADMIN }),
     ).rejects.toThrow(NotFoundException);
 
-    // forbidden (USER trying to export other team)
     prisma.incident.findUnique.mockResolvedValueOnce(makeIncident({ teamId: 'team_other' }));
     await expect(
       svc.exportPdf({ incidentId: 'inc_1' }, { id: 'u', role: Role.USER }),
     ).rejects.toThrow(ForbiddenException);
 
-    // audit mismatch blocks
     prisma.incident.findUnique.mockResolvedValueOnce(makeIncident({ teamId: 'team_user', auditHash: 'HASH_OK' }));
     (computeIncidentAuditHash as any).mockResolvedValueOnce({ hash: 'NOPE' });
     await expect(
       svc.exportPdf({ incidentId: 'inc_2' }, { id: 'u', role: Role.USER }),
     ).rejects.toThrow(ConflictException);
 
-    // success
     prisma.incident.findUnique.mockResolvedValueOnce(makeIncident({ teamId: 'team_user', auditHash: 'HASH_OK' }));
     (computeIncidentAuditHash as any).mockResolvedValueOnce({ hash: 'HASH_OK' });
     const buf = await svc.exportPdf({ incidentId: 'inc_ok' }, { id: 'u', role: Role.USER });
@@ -787,11 +769,9 @@ describe('ReportsService (full coverage)', () => {
     const prisma = makePrismaMock();
     prisma.team.findFirst.mockResolvedValue({ id: 't1' });
 
-    // report incident list: return 200 to hit "(cap 200)" branch
     const incidents = Array.from({ length: 200 }, (_, i) =>
       makeIncident({
         id: `inc_${i}`,
-        // vary some statuses to touch chip color paths in timeline renderer
         status:
           i % 5 === 0
             ? IncidentStatus.NEW
@@ -811,14 +791,12 @@ describe('ReportsService (full coverage)', () => {
                 ? Severity.SEV3
                 : Severity.SEV4,
         resolvedAt: i % 3 === 0 ? null : new Date('2025-01-01T01:00:00.000Z'),
-        // include some empty comments cases
         comments: i % 7 === 0 ? [] : undefined,
       }),
     );
 
     prisma.incident.findMany.mockResolvedValueOnce(incidents);
 
-    // getKpis internals
     prisma.incident.count
       .mockResolvedValueOnce(10)
       .mockResolvedValueOnce(20)
@@ -827,13 +805,11 @@ describe('ReportsService (full coverage)', () => {
     prisma.$queryRaw
       .mockResolvedValueOnce([{ avg_seconds: 100, median_seconds: 80, p90_seconds: 200 }])
       .mockResolvedValueOnce([{ compliance: 0.5 }])
-      // getTimeseries used by report chart
       .mockResolvedValueOnce([
         { bucket: new Date('2025-01-01T00:00:00.000Z'), count: 1 },
         { bucket: new Date('2025-01-02T00:00:00.000Z'), count: 3 },
       ]);
 
-    // lifetime min/max for chartRange
     prisma.incident.aggregate.mockResolvedValueOnce({
       _min: { createdAt: new Date('2025-01-01T00:00:00.000Z') },
       _max: { createdAt: new Date('2025-01-02T00:00:00.000Z') },
@@ -844,7 +820,6 @@ describe('ReportsService (full coverage)', () => {
     const buf = await svc.exportPdf({}, { id: 'admin', role: Role.ADMIN });
     expect(Buffer.isBuffer(buf)).toBe(true);
     expect(buf.length).toBeGreaterThan(0);
-
     expect(prisma.incident.findMany).toHaveBeenCalledTimes(1);
   });
 
@@ -855,28 +830,26 @@ describe('ReportsService (full coverage)', () => {
     const PDFDocument: any = require('pdfkit');
     const doc = new PDFDocument();
 
-    // drawHeader / page helpers / layout helpers
     (svc as any).drawHeader(doc);
     expect((svc as any).pageBottom(doc)).toBeGreaterThan(0);
     (svc as any).ensureSpace(doc, 1);
     (svc as any).newPage(doc);
+
     const layout = (svc as any).getTwoColumnLayout(doc);
     expect(layout.leftW + layout.rightW + layout.gap).toBeGreaterThan(0);
 
-    // section titles and headers
     (svc as any).sectionTitle(doc, 'Title');
     const yAfter = (svc as any).drawSectionHeaderAt(doc, 'Hdr', 48, 200, doc.y);
     expect(yAfter).toBeGreaterThan(0);
+
     (svc as any).twoColumnHeaders(doc, 'L', 'R', layout.leftX, layout.leftW, layout.rightX, layout.rightW);
 
-    // metricCards
     (svc as any).metricCards(doc, [
       { label: 'A', value: '1' },
       { label: 'B', value: '2', accent: '#123' },
       { label: 'C', value: '3' },
     ]);
 
-    // trend chart + SLA targets + quick stats box
     (svc as any).drawTrendChart(doc, 'Trend', [
       { date: '2025-01-01T00:00:00.000Z', count: 1 },
       { date: '2025-01-02T00:00:00.000Z', count: 5 },
@@ -891,7 +864,6 @@ describe('ReportsService (full coverage)', () => {
     expect(stats.peak).toBe(9);
     (svc as any).drawQuickStatsBox(doc, stats, 'Lifetime');
 
-    // comments plain: empty + filled
     (svc as any).drawCommentsPlainPaged(doc, {
       x: 48,
       y: doc.y,
@@ -913,20 +885,28 @@ describe('ReportsService (full coverage)', () => {
       startIndex: 0,
     });
 
-    // timeline paged: small area to force stop
     (svc as any).drawTimelinePaged(doc, {
       x: 48,
       y: doc.y,
       w: 220,
       h: 40,
       events: [
-        { createdAt: new Date(), type: 'STATUS_CHANGE', message: 'Estado: NEW -> IN_PROGRESS', author: { name: 'X', email: 'x@x.com' } },
-        { createdAt: new Date(), type: 'FIELD_UPDATE', message: 'Notificação email enviada', author: null },
+        {
+          createdAt: new Date(),
+          type: 'STATUS_CHANGE',
+          message: 'Estado: NEW -> IN_PROGRESS',
+          author: { name: 'X', email: 'x@x.com' },
+        },
+        {
+          createdAt: new Date(),
+          type: 'FIELD_UPDATE',
+          message: 'Notificação email enviada',
+          author: null,
+        },
       ],
       startIndex: 0,
     });
 
-    // buildEventsAndMergedComments / normalizeCommentText / pickAuthorLabel
     const inc = makeIncident();
     const merged = (svc as any).buildEventsAndMergedComments(inc);
     expect(merged.events.length).toBeGreaterThan(0);
@@ -937,7 +917,6 @@ describe('ReportsService (full coverage)', () => {
     expect((svc as any).pickAuthorLabel({ name: 'N', email: 'e@x.com' })).toBe('N');
     expect((svc as any).pickAuthorLabel({ name: '', email: 'e@x.com' })).toBe('e@x.com');
 
-    // dedupComments
     const d = (svc as any).dedupComments([
       { createdAt: new Date('2025-01-01T00:00:00Z'), authorLabel: 'A', message: 'x' },
       { createdAt: new Date('2025-01-01T00:00:00Z'), authorLabel: 'A', message: 'x' },

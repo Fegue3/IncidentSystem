@@ -1,3 +1,29 @@
+/**
+ * @file incidents.notifications.e2e.spec.ts
+ * @module test/e2e/incidents.notifications.integration-style
+ *
+ * @summary
+ *  - Testa criação de incidentes (service-level) com regras de notificações e timeline, com DB real.
+ *
+ * @description
+ *  Apesar do nome estar como “e2e”, este teste é mais próximo de **integration**:
+ *  - chama diretamente `IncidentsService.create(...)` (não via HTTP);
+ *  - valida efeitos na DB (timeline/subscriptions) e comportamento por severidade.
+ *
+ *  Também valida que integrações externas (Discord/PagerDuty) podem ser “mockadas” via `global.fetch`.
+ *
+ * @dependencies
+ *  - @nestjs/testing + AppModule: cria o container Nest e resolve services reais.
+ *  - PrismaService: DB real.
+ *  - resetDb (TRUNCATE): garante DB limpa e determinística.
+ *
+ * @security
+ *  - Exercita regras internas do domínio (não auth via HTTP).
+ *
+ * @performance
+ *  - TRUNCATE CASCADE por teste (rápido) mas atenção a paralelismo.
+ */
+
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../../src/app.module';
 import { PrismaService } from '../../src/prisma/prisma.service';
@@ -7,13 +33,13 @@ import { TeamsService } from '../../src/teams/teams.service';
 import { resetDb } from '../integration/_helpers/prisma-reset';
 import { Severity } from '@prisma/client';
 
-// Mock fetch globally for Discord/PagerDuty calls
+// Mock global de fetch para integrações externas (Discord/PagerDuty)
 global.fetch = jest.fn(() =>
   Promise.resolve({
     ok: true,
     status: 204,
     json: async () => ({}),
-  } as any)
+  } as any),
 );
 
 describe('Incident Creation with Notifications (integration)', () => {
@@ -26,7 +52,7 @@ describe('Incident Creation with Notifications (integration)', () => {
   let userId: string;
   let teamId: string;
 
-  // Track notification calls
+  // Tracking de calls (se precisares de asserts mais detalhados no futuro)
   let discordCalls: any[] = [];
   let pagerdutyCallsCalls: any[] = [];
 
@@ -37,6 +63,7 @@ describe('Incident Creation with Notifications (integration)', () => {
     process.env.DATABASE_URL =
       process.env.DATABASE_URL ??
       'postgresql://postgres:postgres@postgres:5432/incidentsdb_test?schema=public';
+
     process.env.FRONTEND_BASE_URL = 'http://localhost:5173';
     process.env.DISCORD_WEBHOOK_URL = 'https://discord.test/webhook-fake';
     process.env.PAGERDUTY_ROUTING_KEY = 'test_key_123';
@@ -84,7 +111,7 @@ describe('Incident Creation with Notifications (integration)', () => {
           severity: Severity.SEV1,
           teamId: teamId,
         },
-        userId
+        userId,
       );
 
       expect(created.id).toBeDefined();
@@ -101,7 +128,7 @@ describe('Incident Creation with Notifications (integration)', () => {
           severity: Severity.SEV1,
           teamId: teamId,
         },
-        userId
+        userId,
       );
 
       const timeline = await prisma.incidentTimelineEvent.findMany({
@@ -120,7 +147,7 @@ describe('Incident Creation with Notifications (integration)', () => {
           severity: Severity.SEV1,
           teamId: teamId,
         },
-        userId
+        userId,
       );
 
       const subscription = await prisma.notificationSubscription.findFirst({
@@ -142,7 +169,7 @@ describe('Incident Creation with Notifications (integration)', () => {
           severity: Severity.SEV2,
           teamId: teamId,
         },
-        userId
+        userId,
       );
 
       expect(created.severity).toBe(Severity.SEV2);
@@ -159,19 +186,22 @@ describe('Incident Creation with Notifications (integration)', () => {
           severity: Severity.SEV3,
           teamId: teamId,
         },
-        userId
+        userId,
       );
 
       expect(created.severity).toBe(Severity.SEV3);
       expect(created.status).toBe('NEW');
 
-      // Timeline should NOT have notification events for SEV3
+      // Timeline não deve ter eventos de notificação em SEV3
       const timeline = await prisma.incidentTimelineEvent.findMany({
         where: { incidentId: created.id },
       });
 
       const notifEvents = timeline.filter(
-        (e) => e.message?.includes('Notificações') || e.message?.includes('Discord') || e.message?.includes('PagerDuty')
+        (e) =>
+          e.message?.includes('Notificações') ||
+          e.message?.includes('Discord') ||
+          e.message?.includes('PagerDuty'),
       );
 
       expect(notifEvents).toHaveLength(0);
@@ -185,7 +215,7 @@ describe('Incident Creation with Notifications (integration)', () => {
           severity: Severity.SEV4,
           teamId: teamId,
         },
-        userId
+        userId,
       );
 
       expect(created.severity).toBe(Severity.SEV4);
@@ -196,7 +226,6 @@ describe('Incident Creation with Notifications (integration)', () => {
       });
 
       const notifEvents = timeline.filter((e) => e.message?.includes('Notificações'));
-
       expect(notifEvents).toHaveLength(0);
     });
   });
@@ -213,7 +242,7 @@ describe('Incident Creation with Notifications (integration)', () => {
           teamId: teamId,
           assigneeId: assignee.id,
         },
-        userId
+        userId,
       );
 
       expect(created.assignee?.id).toBe(assignee.id);
@@ -234,7 +263,7 @@ describe('Incident Creation with Notifications (integration)', () => {
           teamId: teamId,
           primaryServiceId: service.id,
         },
-        userId
+        userId,
       );
 
       expect(created.primaryService?.id).toBe(service.id);
@@ -254,7 +283,7 @@ describe('Incident Creation with Notifications (integration)', () => {
           teamId: teamId,
           primaryServiceKey: 'api-gateway',
         },
-        userId
+        userId,
       );
 
       expect(created.primaryService?.key).toBe('api-gateway');
@@ -270,17 +299,15 @@ describe('Incident Creation with Notifications (integration)', () => {
           severity: Severity.SEV1,
           teamId: teamId,
         },
-        userId
+        userId,
       );
 
       const timeline = await prisma.incidentTimelineEvent.findMany({
         where: { incidentId: created.id },
       });
 
-      // Should have STATUS_CHANGE + possibly FIELD_UPDATE (service/notif)
       expect(timeline.length).toBeGreaterThan(0);
 
-      // At least one event should be created
       const statusChangeEvents = timeline.filter((e) => e.type === 'STATUS_CHANGE');
       expect(statusChangeEvents.length).toBeGreaterThan(0);
     });

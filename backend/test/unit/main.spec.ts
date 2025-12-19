@@ -1,15 +1,35 @@
+/**
+ * @file test/unit/main.spec.ts
+ * @module tests/unit/main
+ *
+ * @summary
+ *  - Testes unitários do ficheiro main.ts (efeitos colaterais no bootstrap).
+ *
+ * @description
+ *  - Cobre:
+ *    - inicialização do dd-trace (init) com sampleRate correto
+ *    - criação da app via NestFactory.create
+ *    - configuração: global prefix, CORS, ValidationPipe
+ *    - app.listen com PORT default ou definido
+ *
+ * @dependencies
+ *  - dd-trace: mockado para capturar init args.
+ *  - @nestjs/core NestFactory: mockado para retornar um INestApplication fake.
+ *
+ * @testability
+ *  - main.ts executa bootstrap() no import; este teste usa require() e aguarda o microtask queue.
+ */
 /* eslint-disable @typescript-eslint/no-var-requires */
 import type { INestApplication } from '@nestjs/common';
 
-// --------------------
-// HOISTED mocks
-// --------------------
 const ddInitMock = jest.fn();
 
-// dd-trace: cobre:
-// - require('dd-trace').init
-// - require('dd-trace').default.init
-// - import tracer from 'dd-trace'
+/**
+ * dd-trace: cobre:
+ * - require('dd-trace').init
+ * - require('dd-trace').default.init
+ * - import tracer from 'dd-trace'
+ */
 jest.mock('dd-trace', () => {
   const tracer = { init: ddInitMock };
   return Object.assign(tracer, {
@@ -57,10 +77,9 @@ describe('main.ts (unit) - cover main.ts side-effects', () => {
   });
 
   it('DD_TRACE_SAMPLE_RATE undefined => sampleRate=1, PORT undefined => listen(3000)', async () => {
-    // require main (executa tracer.init + bootstrap() automaticamente)
     require('../../src/main');
 
-    // bootstrap() é async e foi chamado sem await -> deixa a Promise correr
+    // bootstrap() é async e foi chamado sem await; deixamos a Promise completar
     await flushAsync();
 
     expect(ddInitMock).toHaveBeenCalledTimes(1);
@@ -79,7 +98,7 @@ describe('main.ts (unit) - cover main.ts side-effects', () => {
 
     expect((appMock as any).useGlobalPipes).toHaveBeenCalledTimes(1);
 
-    // ✅ matcher estável (não depende de instanceof/interop)
+    // Matcher estável (evita depender de instanceof/interop)
     const pipeArg = (appMock as any).useGlobalPipes.mock.calls[0][0];
     expect(pipeArg).toBeTruthy();
     expect(pipeArg.validatorOptions).toMatchObject({ whitelist: true });

@@ -1,3 +1,32 @@
+/**
+ * @file auth.int.spec.ts
+ * @module test/integration/auth
+ *
+ * @summary
+ *  - Testes de integração do AuthService (register/login/refresh/logout/password reset).
+ *
+ * @description
+ *  Estes testes exercitam o AuthService diretamente (sem HTTP), com Nest TestingModule real
+ *  e base de dados real, garantindo:
+ *  - persistência do utilizador;
+ *  - refreshTokenHash guardado e removido corretamente;
+ *  - validação de credenciais e tokens (Unauthorized/BadRequest);
+ *  - fluxo de reset de password.
+ *
+ * @dependencies
+ *  - AppModule: container real de providers do backend.
+ *  - PrismaService: persistência e asserts diretos à DB.
+ *  - resetDb (TRUNCATE): isolamento determinístico entre testes.
+ *
+ * @security
+ *  - Valida comportamentos de autenticação ao nível de service.
+ *  - Secrets JWT são definidos com defaults apenas em ambiente de teste.
+ *
+ * @errors
+ *  - UnauthorizedException: credenciais inválidas / refresh inválido.
+ *  - BadRequestException: password nova inválida (ex.: demasiado curta) e outras validações.
+ */
+
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../../src/app.module';
 import { PrismaService } from '../../src/prisma/prisma.service';
@@ -13,13 +42,16 @@ describe('Auth (integration)', () => {
   beforeAll(async () => {
     jest.setTimeout(30000);
 
+    // Config de ambiente para testes (não sobrescreve se já existir)
     process.env.NODE_ENV = process.env.NODE_ENV ?? 'test';
     process.env.DATABASE_URL =
       process.env.DATABASE_URL ??
       'postgresql://postgres:postgres@postgres:5432/incidentsdb_test?schema=public';
 
-    process.env.JWT_ACCESS_SECRET = process.env.JWT_ACCESS_SECRET ?? 'super_access_secret';
-    process.env.JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET ?? 'super_refresh_secret';
+    process.env.JWT_ACCESS_SECRET =
+      process.env.JWT_ACCESS_SECRET ?? 'super_access_secret';
+    process.env.JWT_REFRESH_SECRET =
+      process.env.JWT_REFRESH_SECRET ?? 'super_refresh_secret';
 
     mod = await Test.createTestingModule({
       imports: [AppModule],
@@ -32,6 +64,7 @@ describe('Auth (integration)', () => {
   }, 30000);
 
   beforeEach(async () => {
+    // Isola cada teste: DB limpa
     await resetDb(prisma);
   });
 
@@ -53,7 +86,9 @@ describe('Auth (integration)', () => {
   });
 
   it('login() -> falha se credenciais inválidas', async () => {
-    await expect(auth.login('nope@test.com', 'x')).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(auth.login('nope@test.com', 'x')).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
   });
 
   it('login() -> devolve tokens e atualiza refreshTokenHash', async () => {
@@ -79,7 +114,9 @@ describe('Auth (integration)', () => {
   it('refresh() -> falha se refresh inválido', async () => {
     const reg = await auth.register('auth4@test.com', 'StrongPass1!', 'Auth4');
 
-    await expect(auth.refresh(reg.user.id, 'INVALID')).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(auth.refresh(reg.user.id, 'INVALID')).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
   });
 
   it('logout() -> limpa refreshTokenHash', async () => {
@@ -103,12 +140,17 @@ describe('Auth (integration)', () => {
     const ok = await auth.resetPassword(token, 'NewPass1!');
     expect(ok).toEqual({ success: true });
 
-    await expect(auth.resetPassword(token, 'X')).rejects.toBeInstanceOf(BadRequestException);
+    // Password nova inválida deve lançar BadRequestException
+    await expect(auth.resetPassword(token, 'X')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
 
+    // Password antiga deixa de funcionar
     await expect(auth.login('auth6@test.com', 'StrongPass1!')).rejects.toBeInstanceOf(
       UnauthorizedException,
     );
 
+    // Password nova funciona
     const login2 = await auth.login('auth6@test.com', 'NewPass1!');
     expect(login2.accessToken).toBeDefined();
   });

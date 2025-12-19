@@ -1,3 +1,25 @@
+/**
+ * @file test/unit/auth.service.spec.ts
+ * @module tests/unit/auth-service
+ *
+ * @summary
+ *  - Testes unitários do AuthService.
+ *
+ * @description
+ *  - Valida regras e fluxos de autenticação sem base de dados real:
+ *    - register/login/refresh/logout/deleteAccount
+ *    - requestPasswordReset/resetPassword
+ *    - me (lookup do user)
+ *  - Usa mocks para UsersService, UsersRepository e JwtService.
+ *
+ * @dependencies
+ *  - bcrypt: mockado (hash/compare) para tornar determinístico.
+ *  - crypto.randomBytes: mockado para gerar reset token determinístico.
+ *  - JwtService: mockado para gerar token determinístico.
+ *
+ * @security
+ *  - Verifica caminhos de Unauthorized/BadRequest em cenários inválidos.
+ */
 import { Test } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
 import { AuthService } from '../../src/auth/auth.service';
@@ -75,9 +97,7 @@ describe('AuthService (unit)', () => {
   it('login -> email não existe => Unauthorized', async () => {
     usersMock.findByEmail.mockResolvedValue(null);
 
-    await expect(service.login('x@x.com', 'pw')).rejects.toBeInstanceOf(
-      UnauthorizedException,
-    );
+    await expect(service.login('x@x.com', 'pw')).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it('login -> password inválida => Unauthorized', async () => {
@@ -88,9 +108,7 @@ describe('AuthService (unit)', () => {
     });
     usersMock.validatePassword.mockResolvedValue(false);
 
-    await expect(service.login('a@a.com', 'pw')).rejects.toBeInstanceOf(
-      UnauthorizedException,
-    );
+    await expect(service.login('a@a.com', 'pw')).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it('login -> ok => grava refresh hash e devolve tokens', async () => {
@@ -119,9 +137,7 @@ describe('AuthService (unit)', () => {
   it('refresh -> se user não tem refreshTokenHash => Unauthorized', async () => {
     usersMock.findById.mockResolvedValue({ id: 'u1', refreshTokenHash: null });
 
-    await expect(service.refresh('u1', 'incoming')).rejects.toBeInstanceOf(
-      UnauthorizedException,
-    );
+    await expect(service.refresh('u1', 'incoming')).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it('refresh -> ok => devolve novos tokens e atualiza refresh hash', async () => {
@@ -145,11 +161,7 @@ describe('AuthService (unit)', () => {
 
     const res = await service.changePassword('u1', 'old', 'newStrongPass1!');
 
-    expect(usersMock.changePassword).toHaveBeenCalledWith(
-      'u1',
-      'old',
-      'newStrongPass1!',
-    );
+    expect(usersMock.changePassword).toHaveBeenCalledWith('u1', 'old', 'newStrongPass1!');
     expect(res).toEqual({ success: true });
   });
 
@@ -182,15 +194,15 @@ describe('AuthService (unit)', () => {
   });
 
   it('resetPassword -> se nenhum token bater => BadRequestException', async () => {
-    // compare() mocked to true por default -> forçamos false aqui
+    // compare() está mockado para true por default; forçamos false aqui
     const bcrypt = require('bcrypt');
     bcrypt.compare.mockResolvedValue(false);
 
     repoMock.prisma.user.findMany.mockResolvedValue([{ id: 'u1', resetTokenHash: 'H1' }]);
 
-    await expect(
-      service.resetPassword('incoming', 'StrongPass1!'),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.resetPassword('incoming', 'StrongPass1!')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
   });
 
   it('resetPassword -> encontra match => setPassword + clearResetToken', async () => {
@@ -206,14 +218,10 @@ describe('AuthService (unit)', () => {
     expect(res).toEqual({ success: true });
   });
 
-  // ✅ NOVOS TESTES PARA COBRIR me()
-
   it('me -> se user não existe => UnauthorizedException', async () => {
     usersMock.findById.mockResolvedValue(null);
 
-    await expect(service.me('missing')).rejects.toBeInstanceOf(
-      UnauthorizedException,
-    );
+    await expect(service.me('missing')).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it('me -> ok => devolve userId/email/role/teamId', async () => {
