@@ -32,6 +32,7 @@
  *  - `useMemo` para filtros e histórico filtrado.
  */
 
+
 import { useEffect, useMemo, useState } from "react";
 import {
   Area,
