@@ -1,4 +1,19 @@
-// test/incidents.controller.spec.ts
+/**
+ * @file test/unit/incidents.controller.spec.ts
+ * @module tests/unit/incidents-controller
+ *
+ * @summary
+ *  - Testes unitários do IncidentsController (camada HTTP/controller).
+ *
+ * @description
+ *  - Garante que cada endpoint do controller:
+ *    - passa o DTO correto para o service,
+ *    - extrai userId de req.user,
+ *    - devolve o output do service.
+ *
+ * @dependencies
+ *  - IncidentsService é mockado (não toca em DB).
+ */
 import { Test, TestingModule } from '@nestjs/testing';
 import { IncidentsController } from '../../src/incidents/incidents.controller';
 import { IncidentsService } from '../../src/incidents/incidents.service';
@@ -8,7 +23,7 @@ import { ChangeStatusDto } from '../../src/incidents/dto/change-status.dto';
 import { AddCommentDto } from '../../src/incidents/dto/add-comment.dto';
 import { ListIncidentsDto } from '../../src/incidents/dto/list-incidents.dto';
 
-describe('IncidentsController', () => {
+describe('IncidentsController (unit)', () => {
   let controller: IncidentsController;
   let service: jest.Mocked<IncidentsService>;
 
@@ -28,12 +43,7 @@ describe('IncidentsController', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [IncidentsController],
-      providers: [
-        {
-          provide: IncidentsService,
-          useValue: serviceMock,
-        },
-      ],
+      providers: [{ provide: IncidentsService, useValue: serviceMock }],
     }).compile();
 
     controller = module.get<IncidentsController>(IncidentsController);
@@ -49,11 +59,11 @@ describe('IncidentsController', () => {
       user: { id: userId, sub: userId },
     } as any);
 
-  it('create deve chamar service.create com dto e userId', async () => {
+  it('create chama service.create com dto e userId', async () => {
     const dto: CreateIncidentDto = {
       title: 'DB down',
       description: 'desc',
-      severity: undefined, // 👈 antes era priority
+      severity: undefined,
       assigneeId: undefined,
       teamId: undefined,
       categoryIds: [],
@@ -68,10 +78,10 @@ describe('IncidentsController', () => {
     expect(result).toEqual({ id: 'inc-1' });
   });
 
-  it('findAll deve chamar service.findAll com query', async () => {
+  it('findAll chama service.findAll com query', async () => {
     const query: ListIncidentsDto = {
       status: undefined,
-      severity: undefined, // 👈 antes era priority
+      severity: undefined,
       assigneeId: undefined,
       teamId: undefined,
       search: 'db',
@@ -87,7 +97,7 @@ describe('IncidentsController', () => {
     expect(result).toEqual([]);
   });
 
-  it('findOne deve chamar service.findOne com id', async () => {
+  it('findOne chama service.findOne com id', async () => {
     (service.findOne as jest.Mock).mockResolvedValue({ id: 'inc-1' });
 
     const result = await controller.findOne('inc-1');
@@ -96,10 +106,8 @@ describe('IncidentsController', () => {
     expect(result).toEqual({ id: 'inc-1' });
   });
 
-  it('update deve chamar service.update com id, dto e userId', async () => {
-    const dto: UpdateIncidentDto = {
-      title: 'novo',
-    };
+  it('update chama service.update com id, dto e userId', async () => {
+    const dto: UpdateIncidentDto = { title: 'novo' };
 
     (service.update as jest.Mock).mockResolvedValue({ id: 'inc-1' });
 
@@ -109,7 +117,7 @@ describe('IncidentsController', () => {
     expect(result).toEqual({ id: 'inc-1' });
   });
 
-  it('changeStatus deve chamar service.changeStatus com id, dto e userId', async () => {
+  it('changeStatus chama service.changeStatus com id, dto e userId', async () => {
     const dto: ChangeStatusDto = {
       newStatus: undefined as any,
       message: 'msg',
@@ -119,32 +127,22 @@ describe('IncidentsController', () => {
 
     const result = await controller.changeStatus('inc-1', dto, mockReq());
 
-    expect(service.changeStatus).toHaveBeenCalledWith(
-      'inc-1',
-      dto,
-      'user-1',
-    );
+    expect(service.changeStatus).toHaveBeenCalledWith('inc-1', dto, 'user-1');
     expect(result).toEqual({ id: 'inc-1' });
   });
 
-  it('addComment deve chamar service.addComment com id, dto e userId', async () => {
+  it('addComment chama service.addComment com id, dto e userId', async () => {
     const dto: AddCommentDto = { body: 'ola' };
 
-    (service.addComment as jest.Mock).mockResolvedValue({
-      id: 'comment-1',
-    });
+    (service.addComment as jest.Mock).mockResolvedValue({ id: 'comment-1' });
 
     const result = await controller.addComment('inc-1', dto, mockReq());
 
-    expect(service.addComment).toHaveBeenCalledWith(
-      'inc-1',
-      dto,
-      'user-1',
-    );
+    expect(service.addComment).toHaveBeenCalledWith('inc-1', dto, 'user-1');
     expect(result).toEqual({ id: 'comment-1' });
   });
 
-  it('listComments deve chamar service.listComments', async () => {
+  it('listComments chama service.listComments', async () => {
     (service.listComments as jest.Mock).mockResolvedValue([]);
 
     const result = await controller.listComments('inc-1');
@@ -153,7 +151,7 @@ describe('IncidentsController', () => {
     expect(result).toEqual([]);
   });
 
-  it('listTimeline deve chamar service.listTimeline', async () => {
+  it('listTimeline chama service.listTimeline', async () => {
     (service.listTimeline as jest.Mock).mockResolvedValue([]);
 
     const result = await controller.listTimeline('inc-1');
@@ -162,10 +160,8 @@ describe('IncidentsController', () => {
     expect(result).toEqual([]);
   });
 
-  it('subscribe deve chamar service.subscribe com id e userId', async () => {
-    (service.subscribe as jest.Mock).mockResolvedValue({
-      subscribed: true,
-    });
+  it('subscribe chama service.subscribe com id e userId', async () => {
+    (service.subscribe as jest.Mock).mockResolvedValue({ subscribed: true });
 
     const result = await controller.subscribe('inc-1', mockReq());
 
@@ -173,10 +169,8 @@ describe('IncidentsController', () => {
     expect(result).toEqual({ subscribed: true });
   });
 
-  it('unsubscribe deve chamar service.unsubscribe com id e userId', async () => {
-    (service.unsubscribe as jest.Mock).mockResolvedValue({
-      subscribed: false,
-    });
+  it('unsubscribe chama service.unsubscribe com id e userId', async () => {
+    (service.unsubscribe as jest.Mock).mockResolvedValue({ subscribed: false });
 
     const result = await controller.unsubscribe('inc-1', mockReq());
 

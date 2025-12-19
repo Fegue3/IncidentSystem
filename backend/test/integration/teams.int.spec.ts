@@ -1,3 +1,24 @@
+/**
+ * @file teams.int.spec.ts
+ * @module test/integration/teams
+ *
+ * @summary
+ *  - Testes de integração do TeamsService: create, add/remove member, update members.
+ *
+ * @description
+ *  Valida operações de equipa com DB real:
+ *  - create com memberIds (connect) cria ligações;
+ *  - addMember/removeMember alteram membership;
+ *  - addMember lança NotFound se team não existe;
+ *  - update com memberIds faz reset completo da lista de membros.
+ *
+ * @dependencies
+ *  - UsersService: criação de utilizadores para fixtures.
+ *  - TeamsService: operações testadas.
+ *  - PrismaService: asserts diretos.
+ *  - resetDb: isolamento.
+ */
+
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../../src/app.module';
 import { PrismaService } from '../../src/prisma/prisma.service';
@@ -71,9 +92,9 @@ describe('Teams (integration)', () => {
   it('addMember() -> NotFound se team não existir', async () => {
     const u = await users.create('x@test.com', 'Pass1!', 'X');
 
-    await expect(
-      teams.addMember('team-does-not-exist', u.id),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(teams.addMember('team-does-not-exist', u.id)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 
   it('update() com memberIds -> faz reset completo de membros', async () => {

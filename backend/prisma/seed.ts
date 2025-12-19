@@ -1,7 +1,38 @@
+/**
+ * @file backend/prisma/seed.ts
+ * @module Backend.Persistence.Seed.Base
+ *
+ * @summary
+ *  - Seed base (idempotente) do IMS: cria/garante Teams, Users (personas), Services e Categories.
+ *
+ * @description
+ *  Este seed é o “bootstrap” mínimo do sistema e serve como pré-requisito para seeds mais ricas,
+ * como `seed.incidents.ts`, que assume que:
+ *  - as personas existem (por email fixo)
+ *  - as equipas existem (por name fixo)
+ *  - há serviços ativos e categorias para associar aos incidentes
+ *
+ *  Estratégia:
+ *   - usa `upsert` em entidades com chaves únicas (team.name, user.email, service.key, category.name)
+ *   - reexecutar não duplica, apenas atualiza campos descritivos quando necessário
+ *
+ * @security
+ *  - DEFAULT_PASSWORD é apenas para dev/demo. Não usar em produção.
+ *
+ * @data_created
+ *  - Team: 5 equipas base
+ *  - User: 5 personas (2 ADMIN, 3 USER) ligadas a equipas
+ *  - Service: catálogo de componentes (infra, observabilidade, produto, suporte, compliance)
+ *  - Category: catálogo de tipos de incidente
+ */
+
 import { PrismaClient, Role } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+/**
+ * Password default (dev/demo). Em produção isto deve ser proibido/overridden.
+ */
 const DEFAULT_PASSWORD = "123456";
 
 type TeamSeed = { name: string };
@@ -37,6 +68,7 @@ async function main() {
 
   const teamIdByName = new Map<string, string>();
 
+  // Idempotência: Team.name é unique, logo upsert impede duplicação.
   for (const t of teams) {
     const team = await prisma.team.upsert({
       where: { name: t.name },
@@ -91,6 +123,8 @@ async function main() {
     const teamId = teamIdByName.get(u.teamName);
     if (!teamId) throw new Error(`Team not found: ${u.teamName}`);
 
+    // Idempotência: User.email é unique.
+    // Nota: no update, mantém password existente (não sobrescreve) para evitar surprises.
     await prisma.user.upsert({
       where: { email: u.email },
       create: {
@@ -103,8 +137,6 @@ async function main() {
       update: {
         name: u.name,
         role: u.role ?? Role.USER,
-        // mantém password se já existia (não sobrescreve), mas podes trocar se quiseres:
-        // password: u.password ?? DEFAULT_PASSWORD,
         teams: { set: [{ id: teamId }] },
       },
     });
@@ -149,7 +181,7 @@ async function main() {
     { key: "helpdesk", name: "Helpdesk (Zendesk)", description: "Tickets e suporte ao cliente", ownerTeamName: "Service Desk" },
     { key: "status-page", name: "Status Page", description: "Página pública de estado", ownerTeamName: "Service Desk" },
 
-    // Segurança/compliance (se quiseres rastrear “onde doeu”)
+    // Segurança/compliance
     { key: "iam-sso", name: "SSO / IAM", description: "Identidade e acesso", ownerTeamName: "Compliance & Risk" },
     { key: "audit-trail", name: "Audit Trail", description: "Registos e evidências", ownerTeamName: "Compliance & Risk" },
   ];
@@ -157,6 +189,7 @@ async function main() {
   for (const s of services) {
     const ownerTeamId = s.ownerTeamName ? teamIdByName.get(s.ownerTeamName) : undefined;
 
+    // Idempotência: Service.key é unique.
     await prisma.service.upsert({
       where: { key: s.key },
       create: {
@@ -176,7 +209,7 @@ async function main() {
   }
 
   // ---------------------------
-  // 4) Categories (opcional: “tipos de problema”)
+  // 4) Categories (tipos de problema)
   // ---------------------------
   const categories: CategorySeed[] = [
     { name: "Latência alta", description: "Aumento de latência / degradação de performance" },
@@ -194,6 +227,7 @@ async function main() {
   ];
 
   for (const c of categories) {
+    // Idempotência: Category.name é unique.
     await prisma.category.upsert({
       where: { name: c.name },
       create: { name: c.name, description: c.description },

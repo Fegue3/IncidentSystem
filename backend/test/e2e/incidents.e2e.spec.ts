@@ -1,3 +1,25 @@
+/**
+ * @file incidents.e2e.spec.ts
+ * @module test/e2e/incidents.e2e
+ *
+ * @summary
+ *  - Testes E2E para o ciclo de vida de incidentes: create, list/search, update, status, comments, subscribe e delete.
+ *
+ * @description
+ *  Valida os endpoints `/api/incidents/*` com autenticação real:
+ *  - criação com defaults (status/severity) e consulta de timeline;
+ *  - listagem com filtro de pesquisa;
+ *  - updates e transições de status (incluindo erro 400 em transição inválida);
+ *  - comentários e respetiva presença no histórico (timeline);
+ *  - subscribe/unsubscribe e controlo de permissões no delete.
+ *
+ * @security
+ *  - Endpoints exigem Bearer token: valida 401 sem token.
+ *
+ * @testability
+ *  - Suite usa reset de DB por teste para evitar dependência de ordem.
+ */
+
 import request from 'supertest';
 import { bootstrapE2E, resetDb, registerUser } from './_helpers/e2e-utils';
 
@@ -106,7 +128,7 @@ describe('Incidents (e2e)', () => {
 
     const id = created.body.id;
 
-    // ✅ FIX: é PATCH e normalmente devolve 200
+    // Endpoint de mudança de status (PATCH) deve devolver sucesso (normalmente 200)
     const triaged = await request(ctx.http)
       .patch(`/api/incidents/${id}/status`)
       .set('Authorization', `Bearer ${u1.accessToken}`)
@@ -115,6 +137,7 @@ describe('Incidents (e2e)', () => {
 
     expect(triaged.body.status).toBe('TRIAGED');
 
+    // Transição inválida deve devolver 400
     await request(ctx.http)
       .patch(`/api/incidents/${id}/status`)
       .set('Authorization', `Bearer ${u1.accessToken}`)
@@ -170,7 +193,6 @@ describe('Incidents (e2e)', () => {
 
     const id = created.body.id;
 
-    // (se o teu controller for POST/DELETE, isto está ok)
     const sub = await request(ctx.http)
       .post(`/api/incidents/${id}/subscribe`)
       .set('Authorization', `Bearer ${u1.accessToken}`)

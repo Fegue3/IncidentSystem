@@ -1,4 +1,27 @@
-// test/integration/incidents.filtering.int.spec.ts
+/**
+ * @file incidents.filtering.int.spec.ts
+ * @module test/integration/incidents.filtering
+ *
+ * @summary
+ *  - Testes de integração para filtros e pesquisa na listagem de incidentes.
+ *
+ * @description
+ *  Exercita `IncidentsService.findAll(...)` com DB real, verificando:
+ *  - filtros por status, severidade, equipa e serviço (ID e key);
+ *  - pesquisa por texto (título/descrição, case-insensitive);
+ *  - combinação de filtros;
+ *  - filtragem por intervalo temporal (createdFrom);
+ *  - ordenação por createdAt (desc).
+ *
+ * @dependencies
+ *  - AppModule + services reais: Incidents/Users/Teams/Services.
+ *  - PrismaService: fixtures diretas (service) e reset.
+ *  - resetDb (TRUNCATE): isolamento.
+ *
+ * @performance
+ *  - Alguns testes criam múltiplos incidentes; a suite depende de DB limpa por teste.
+ */
+
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../../src/app.module';
 import { PrismaService } from '../../src/prisma/prisma.service';
@@ -48,7 +71,7 @@ describe('Incidents Filtering & Search (integration)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
 
-    // Setup: user, teams, services (email único por teste)
+    // Setup por teste: user/teams/services com valores únicos
     const email = `filter+${randomUUID()}@test.com`;
     const user = await users.create(email, 'Pass1!', 'Filter Tester');
     userId = user.id;
@@ -58,6 +81,7 @@ describe('Incidents Filtering & Search (integration)', () => {
     teamId1 = team1.id;
     teamId2 = team2.id;
 
+    // Services criados diretamente via Prisma para fixtures determinísticas
     const svc1 = await prisma.service.create({
       data: { key: 'postgres', name: 'PostgreSQL', isActive: true },
     });
@@ -385,9 +409,7 @@ describe('Incidents Filtering & Search (integration)', () => {
       const result = await incidents.findAll({ createdFrom: before });
 
       expect(result.length).toBeGreaterThan(0);
-      expect(new Date(result[0].createdAt).getTime()).toBeGreaterThan(
-        before.getTime(),
-      );
+      expect(new Date(result[0].createdAt).getTime()).toBeGreaterThan(before.getTime());
     });
   });
 

@@ -1,8 +1,28 @@
+// test/unit/teams.service.spec.ts
+/**
+ * Unit tests: TeamsService
+ *
+ * O que valida:
+ * - create(): cria equipa só com name / cria equipa com membros
+ * - findAll(): sem filtro e com search (contains + insensitive)
+ * - findForUser(): lista equipas onde o user é membro
+ * - findOne(): devolve / NotFound
+ * - listMembers(): devolve membros / NotFound
+ * - addMember(): valida team/user, remove de outras equipas (se aplicável) e conecta ao target
+ * - removeMember(): disconnect
+ * - update(): rename, reset members (set), NotFound
+ * - remove(): delete e NotFound
+ *
+ * Nota:
+ * - prisma.$transaction é mockado para executar callback com o mesmo prisma (simplificado)
+ */
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import { NotFoundException } from '@nestjs/common';
 import { TeamsService } from '../../src/teams/teams.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
 
-// mock simples do Prisma
 const createMockPrisma = () => {
   const prisma: any = {
     team: {
@@ -18,7 +38,7 @@ const createMockPrisma = () => {
     },
   };
 
-  // ✅ mock de transaction: executa callback com tx=prisma
+  // transaction simplificada: chama cb(prisma)
   prisma.$transaction = jest.fn(async (cb: any) => cb(prisma));
 
   return prisma;
@@ -37,8 +57,6 @@ describe('TeamsService', () => {
     jest.clearAllMocks();
   });
 
-  // ---------- create ----------
-
   it('cria equipa só com name', async () => {
     const dto = { name: 'NOC 24/7' };
     const created = { id: 'team-1', name: 'NOC 24/7' };
@@ -48,13 +66,9 @@ describe('TeamsService', () => {
     const result = await service.create(dto as any);
 
     expect(prisma.team.create).toHaveBeenCalledWith({
-      data: {
-        name: 'NOC 24/7',
-      },
+      data: { name: 'NOC 24/7' },
       include: {
-        _count: {
-          select: { members: true, incidents: true },
-        },
+        _count: { select: { members: true, incidents: true } },
       },
     });
     expect(result).toBe(created);
@@ -69,19 +83,13 @@ describe('TeamsService', () => {
     expect(prisma.team.create).toHaveBeenCalledWith({
       data: {
         name: 'SRE',
-        members: {
-          connect: [{ id: 'u1' }, { id: 'u2' }],
-        },
+        members: { connect: [{ id: 'u1' }, { id: 'u2' }] },
       },
       include: {
-        _count: {
-          select: { members: true, incidents: true },
-        },
+        _count: { select: { members: true, incidents: true } },
       },
     });
   });
-
-  // ---------- findAll / findForUser ----------
 
   it('lista equipas sem filtro', async () => {
     prisma.team.findMany.mockResolvedValue([]);
@@ -92,9 +100,7 @@ describe('TeamsService', () => {
       where: {},
       orderBy: { name: 'asc' },
       include: {
-        _count: {
-          select: { members: true, incidents: true },
-        },
+        _count: { select: { members: true, incidents: true } },
       },
     });
   });
@@ -106,16 +112,11 @@ describe('TeamsService', () => {
 
     expect(prisma.team.findMany).toHaveBeenCalledWith({
       where: {
-        name: {
-          contains: 'noc',
-          mode: 'insensitive',
-        },
+        name: { contains: 'noc', mode: 'insensitive' },
       },
       orderBy: { name: 'asc' },
       include: {
-        _count: {
-          select: { members: true, incidents: true },
-        },
+        _count: { select: { members: true, incidents: true } },
       },
     });
   });
@@ -127,20 +128,14 @@ describe('TeamsService', () => {
 
     expect(prisma.team.findMany).toHaveBeenCalledWith({
       where: {
-        members: {
-          some: { id: 'user-1' },
-        },
+        members: { some: { id: 'user-1' } },
       },
       orderBy: { name: 'asc' },
       include: {
-        _count: {
-          select: { members: true, incidents: true },
-        },
+        _count: { select: { members: true, incidents: true } },
       },
     });
   });
-
-  // ---------- findOne / listMembers ----------
 
   it('findOne devolve equipa quando existe', async () => {
     const team = { id: 'team-1', name: 'NOC' };
@@ -152,9 +147,7 @@ describe('TeamsService', () => {
       where: { id: 'team-1' },
       include: {
         members: true,
-        _count: {
-          select: { incidents: true, members: true },
-        },
+        _count: { select: { incidents: true, members: true } },
       },
     });
     expect(result).toBe(team);
@@ -163,9 +156,7 @@ describe('TeamsService', () => {
   it('findOne lança NotFound se não existir', async () => {
     prisma.team.findUnique.mockResolvedValue(null);
 
-    await expect(service.findOne('team-x')).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(service.findOne('team-x')).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('listMembers devolve membros da equipa', async () => {
@@ -188,18 +179,14 @@ describe('TeamsService', () => {
   it('listMembers lança NotFound se equipa não existir', async () => {
     prisma.team.findUnique.mockResolvedValue(null);
 
-    await expect(service.listMembers('team-x')).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(service.listMembers('team-x')).rejects.toBeInstanceOf(NotFoundException);
   });
-
-  // ---------- addMember / removeMember ----------
 
   it('addMember liga user à equipa (e remove de outras equipas)', async () => {
     prisma.team.findUnique.mockResolvedValue({ id: 'team-1' });
     prisma.user.findUnique.mockResolvedValue({ id: 'u1' });
 
-    // ✅ user não está em nenhuma equipa antes
+    // user não está em nenhuma equipa antes
     prisma.team.findMany.mockResolvedValue([]);
 
     prisma.team.update.mockResolvedValue({
@@ -209,17 +196,10 @@ describe('TeamsService', () => {
 
     const result = await service.addMember('team-1', 'u1');
 
-    // como findMany devolveu [], deve só conectar ao target
     expect(prisma.team.update).toHaveBeenCalledWith({
       where: { id: 'team-1' },
-      data: {
-        members: {
-          connect: { id: 'u1' },
-        },
-      },
-      include: {
-        members: true,
-      },
+      data: { members: { connect: { id: 'u1' } } },
+      include: { members: true },
     });
 
     expect(result).toEqual({ id: 'team-1', members: [{ id: 'u1' }] });
@@ -228,18 +208,14 @@ describe('TeamsService', () => {
   it('addMember falha se equipa não existir', async () => {
     prisma.team.findUnique.mockResolvedValue(null);
 
-    await expect(service.addMember('team-x', 'u1')).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(service.addMember('team-x', 'u1')).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('addMember falha se user não existir', async () => {
     prisma.team.findUnique.mockResolvedValue({ id: 'team-1' });
     prisma.user.findUnique.mockResolvedValue(null);
 
-    await expect(service.addMember('team-1', 'u-x')).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(service.addMember('team-1', 'u-x')).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('removeMember desliga user da equipa', async () => {
@@ -253,14 +229,8 @@ describe('TeamsService', () => {
 
     expect(prisma.team.update).toHaveBeenCalledWith({
       where: { id: 'team-1' },
-      data: {
-        members: {
-          disconnect: { id: 'u1' },
-        },
-      },
-      include: {
-        members: true,
-      },
+      data: { members: { disconnect: { id: 'u1' } } },
+      include: { members: true },
     });
     expect(result).toEqual({ id: 'team-1', members: [] });
   });
@@ -268,12 +238,8 @@ describe('TeamsService', () => {
   it('removeMember falha se equipa não existir', async () => {
     prisma.team.findUnique.mockResolvedValue(null);
 
-    await expect(service.removeMember('team-x', 'u1')).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(service.removeMember('team-x', 'u1')).rejects.toBeInstanceOf(NotFoundException);
   });
-
-  // ---------- update / remove ----------
 
   it('update renomeia equipa', async () => {
     prisma.team.findUnique.mockResolvedValue({ id: 'team-1', name: 'Old' });
@@ -291,9 +257,7 @@ describe('TeamsService', () => {
       data: { name: 'New' },
       include: {
         members: true,
-        _count: {
-          select: { members: true, incidents: true },
-        },
+        _count: { select: { members: true, incidents: true } },
       },
     });
     expect(result.name).toBe('New');
@@ -307,9 +271,7 @@ describe('TeamsService', () => {
     expect(prisma.team.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: {
-          members: {
-            set: [{ id: 'u1' }, { id: 'u2' }],
-          },
+          members: { set: [{ id: 'u1' }, { id: 'u2' }] },
         },
       }),
     );
@@ -318,9 +280,9 @@ describe('TeamsService', () => {
   it('update lança NotFound se equipa não existir', async () => {
     prisma.team.findUnique.mockResolvedValue(null);
 
-    await expect(
-      service.update('team-x', { name: 'New' } as any),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.update('team-x', { name: 'New' } as any)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 
   it('remove apaga equipa existente', async () => {
@@ -329,17 +291,13 @@ describe('TeamsService', () => {
 
     const result = await service.remove('team-1');
 
-    expect(prisma.team.delete).toHaveBeenCalledWith({
-      where: { id: 'team-1' },
-    });
+    expect(prisma.team.delete).toHaveBeenCalledWith({ where: { id: 'team-1' } });
     expect(result).toEqual({ deleted: true });
   });
 
   it('remove lança NotFound se equipa não existir', async () => {
     prisma.team.findUnique.mockResolvedValue(null);
 
-    await expect(service.remove('team-x')).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(service.remove('team-x')).rejects.toBeInstanceOf(NotFoundException);
   });
 });

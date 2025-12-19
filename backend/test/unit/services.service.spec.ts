@@ -1,9 +1,22 @@
+// test/unit/services.service.spec.ts
+/**
+ * Unit tests: ServicesService
+ *
+ * O que valida:
+ * - list(): converte isActive string para boolean e aplica pesquisa em name/key
+ * - getByKey(): devolve service quando existe
+ * - getById(): lança erro quando não existe
+ */
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import { Test } from '@nestjs/testing';
 import { ServicesService } from '../../src/services/services.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
 
 describe('ServicesService (unit)', () => {
   let service: ServicesService;
+
   const prisma = {
     service: {
       findMany: jest.fn(),
@@ -13,11 +26,9 @@ describe('ServicesService (unit)', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+
     const moduleRef = await Test.createTestingModule({
-      providers: [
-        ServicesService,
-        { provide: PrismaService, useValue: prisma },
-      ],
+      providers: [ServicesService, { provide: PrismaService, useValue: prisma }],
     }).compile();
 
     service = moduleRef.get(ServicesService);
@@ -29,9 +40,15 @@ describe('ServicesService (unit)', () => {
     const res = await service.list({ isActive: 'true', q: 'api' });
 
     expect(prisma.service.findMany).toHaveBeenCalledTimes(1);
+
     const args = prisma.service.findMany.mock.calls[0][0];
+
+    // isActive: "true" -> true
     expect(args.where.isActive).toBe(true);
+
+    // pesquisa em 2 campos (name + key)
     expect(args.where.OR.length).toBe(2);
+
     expect(res).toEqual([{ id: '1' }]);
   });
 

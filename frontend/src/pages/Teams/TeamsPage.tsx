@@ -1,10 +1,74 @@
+/**
+ * @file TeamsPage.tsx
+ * @module pages/Teams/TeamsPage
+ *
+ * @summary
+ *  - Página de gestão de equipas: lista equipas, permite criar novas e definir a “minha equipa” do utilizador.
+ *
+ * @description
+ *  - Esta página apresenta duas áreas principais:
+ *    1) Lista de equipas existentes (com métricas de membros/incidentes).
+ *    2) Painel lateral para:
+ *       - criar equipa (admin/gestão, dependendo das permissões do backend)
+ *       - selecionar e guardar a equipa principal do utilizador autenticado
+ *
+ *  - Persistência de seleção (UX):
+ *    - A seleção é guardada em `localStorage`, MAS:
+ *      - ✅ chave é por utilizador (`selectedTeamId:<userId>`)
+ *      - ✅ utilizador autenticado SEM equipa no backend não herda preferências antigas
+ *    - A “fonte de verdade” é sempre `/teams/me`.
+ *
+ * @dependencies
+ *  - React (`useEffect`, `useMemo`, `useState`) para state/side-effects.
+ *  - `TeamsAPI` para chamadas ao backend (listar, criar, adicionar/remover membro).
+ *  - `useAuth` para obter o utilizador autenticado e usar `user.id` em operações.
+ *  - CSS: `./TeamsPage.css` (layout, cards, badges, responsivo).
+ *
+ * @security
+ *  - A página depende do `AuthContext` para saber se existe sessão (`user`).
+ *  - Operações que alteram membership (add/remove) só executam quando `user` existe.
+ *  - Permissões reais (ex.: quem pode criar equipas) são validadas no backend.
+ *
+ * @errors
+ *  - Erros de carregamento de equipas são mostrados como status message.
+ *  - Erros ao criar equipa são mostrados no formulário.
+ *  - Erros ao guardar equipa são refletidos em `saveTeamMessage`.
+ *
+ * @performance
+ *  - Carrega equipas ao montar (e quando `user?.id` muda).
+ *  - `selectedTeam` usa `useMemo` para evitar `find()` repetido em render.
+ *  - `refreshTeams()` re-fetch para atualizar contagens após alterações.
+ *
+ * @notes
+ *  - `TeamsAPI.addMember(teamId, userId)` assume comportamento do backend:
+ *    mover utilizador para a equipa alvo (removendo de outras equipas). Se isso mudar, ajustar UI.
+ *  - ✅ Fix: evitar “leak” de seleção entre contas via localStorage global.
+ */
+
 import { useEffect, useMemo, useState } from "react";
 import "./TeamsPage.css";
 import { TeamsAPI, type TeamSummary } from "../../services/teams";
 import { useAuth } from "../../context/AuthContext";
 
-const TEAM_STORAGE_KEY = "selectedTeamId";
+/**
+ * Devolve a chave de localStorage para a seleção de equipa.
+ *
+ * @remarks
+ * - A chave é por utilizador para evitar heranças entre contas no mesmo browser.
+ * - Para sessões sem login (guest), usa chave separada.
+ */
+function teamStorageKey(userId?: string) {
+  return userId ? `selectedTeamId:${userId}` : "selectedTeamId:guest";
+}
 
+/**
+ * Página de Equipas.
+ *
+ * Funcionalidades:
+ * - Listar equipas e métricas (membros/incidentes).
+ * - Criar nova equipa.
+ * - Selecionar e guardar a equipa principal do utilizador autenticado.
+ */
 export function TeamsPage() {
   const { user } = useAuth();
 
@@ -21,11 +85,31 @@ export function TeamsPage() {
   const [savingTeam, setSavingTeam] = useState(false);
   const [saveTeamMessage, setSaveTeamMessage] = useState<string | null>(null);
 
+  /**
+   * Equipa atualmente selecionada na UI (ou null).
+   */
   const selectedTeam = useMemo(
     () => teams.find((t) => t.id === selectedTeamId) ?? null,
-    [teams, selectedTeamId]
+    [teams, selectedTeamId],
   );
 
+  /**
+   * Carrega equipas:
+   * - lista global (`/teams`)
+   * - e, se houver utilizador, tenta obter equipa “real” do backend (`/teams/me`)
+   *
+   * Regras de seleção inicial:
+   * - ✅ Se houver `user`:
+   *   - tenta `/teams/me`
+   *   - se vier equipa: seleciona-a e guarda em localStorage (por user)
+   *   - se vier vazio: limpa seleção e remove localStorage (não herda do user anterior)
+   *   - só cai para localStorage se `/teams/me` falhar (erro)
+   * - Se não houver `user`:
+   *   - usa localStorage "guest"
+   *
+   * @remarks
+   * - Usa a flag `active` para evitar setState após unmount.
+   */
   useEffect(() => {
     let active = true;
 
@@ -33,32 +117,39 @@ export function TeamsPage() {
       setLoading(true);
       setError(null);
 
+      const key = teamStorageKey(user?.id);
+
       try {
         const data = await TeamsAPI.listAll();
         if (!active) return;
 
         setTeams(data);
 
-        // Preferência inicial:
-        // 1) se estiver autenticado: usa a equipa real do backend (/teams/me)
-        // 2) se não: tenta localStorage (apenas UI)
+        // --- Se estiver autenticado, a fonte de verdade é /teams/me ---
         if (user) {
           try {
             const mine = await TeamsAPI.listMine();
             if (!active) return;
 
             const mineId = mine?.[0]?.id ?? "";
+
             if (mineId && data.some((t) => t.id === mineId)) {
               setSelectedTeamId(mineId);
-              localStorage.setItem(TEAM_STORAGE_KEY, mineId);
-              return;
+              localStorage.setItem(key, mineId);
+            } else {
+              // ✅ user autenticado mas SEM equipa -> não herdar seleção antiga
+              setSelectedTeamId("");
+              localStorage.removeItem(key);
             }
+
+            return; // ✅ importante: não cair para fallback quando /teams/me respondeu
           } catch {
-            // se falhar /teams/me, cai para localStorage
+            // Se falhar /teams/me, aí sim: fallback para localStorage (por user)
           }
         }
 
-        const stored = localStorage.getItem(TEAM_STORAGE_KEY) ?? "";
+        // --- Fallback (guest ou /teams/me falhou) ---
+        const stored = localStorage.getItem(key) ?? "";
         if (stored && data.some((t) => t.id === stored)) {
           setSelectedTeamId(stored);
         } else {
@@ -80,12 +171,22 @@ export function TeamsPage() {
     };
   }, [user?.id]);
 
+  /**
+   * Recarrega a lista global de equipas (útil após alterações para atualizar contagens).
+   *
+   * @returns Lista atualizada de equipas.
+   */
   async function refreshTeams() {
     const data = await TeamsAPI.listAll();
     setTeams(data);
     return data;
   }
 
+  /**
+   * Handler do formulário de criação de equipa.
+   *
+   * @param e Evento de submit do form.
+   */
   async function handleCreateTeam(e: React.FormEvent) {
     e.preventDefault();
     if (!newTeamName.trim()) return;
@@ -106,8 +207,24 @@ export function TeamsPage() {
     }
   }
 
+  /**
+   * Guarda a equipa principal do utilizador.
+   *
+   * Regras:
+   * - Se `selectedTeamId` tiver valor:
+   *   - chama `TeamsAPI.addMember(selectedTeamId, user.id)` e guarda no localStorage (por user)
+   * - Se `selectedTeamId` for vazio:
+   *   - remove o user de todas as equipas atuais (`TeamsAPI.listMine` + removeMember)
+   *   - remove a chave do localStorage (por user)
+   *
+   * Depois:
+   * - refresh de equipas para atualizar métricas
+   * - tenta re-sincronizar a seleção com `/teams/me`
+   */
   async function handleSaveTeam() {
     if (!user) return;
+
+    const key = teamStorageKey(user.id);
 
     setSavingTeam(true);
     setSaveTeamMessage(null);
@@ -116,14 +233,14 @@ export function TeamsPage() {
       if (selectedTeamId) {
         // ✅ backend agora move o user (remove de outras equipas e adiciona nesta)
         await TeamsAPI.addMember(selectedTeamId, user.id);
-        localStorage.setItem(TEAM_STORAGE_KEY, selectedTeamId);
+        localStorage.setItem(key, selectedTeamId);
         setSaveTeamMessage("Equipa atualizada com sucesso.");
       } else {
         // Se escolher "Nenhuma equipa", remove o user de qualquer equipa (se houver)
         const mine = await TeamsAPI.listMine();
         await Promise.all(mine.map((t) => TeamsAPI.removeMember(t.id, user.id)));
 
-        localStorage.removeItem(TEAM_STORAGE_KEY);
+        localStorage.removeItem(key);
         setSaveTeamMessage("Equipa removida com sucesso.");
       }
 
@@ -134,8 +251,11 @@ export function TeamsPage() {
       try {
         const mine = await TeamsAPI.listMine();
         const mineId = mine?.[0]?.id ?? "";
+
         setSelectedTeamId(mineId);
-        if (mineId) localStorage.setItem(TEAM_STORAGE_KEY, mineId);
+
+        if (mineId) localStorage.setItem(key, mineId);
+        else localStorage.removeItem(key);
       } catch {
         // ignora
       }
@@ -148,6 +268,12 @@ export function TeamsPage() {
     }
   }
 
+  /**
+   * Heurística simples para aplicar estilo de erro na mensagem de save.
+   *
+   * @remarks
+   * - Idealmente, a UI deveria ter estados explícitos (success/error) em vez de heurística por string.
+   */
   const saveMessageIsError =
     !!saveTeamMessage &&
     (saveTeamMessage.toLowerCase().includes("não foi") ||
@@ -196,7 +322,9 @@ export function TeamsPage() {
 
                 return (
                   <li key={team.id} className="teams-list__item">
-                    <div className={`team-badge ${isSelected ? "team-badge--selected" : ""}`}>
+                    <div
+                      className={`team-badge ${isSelected ? "team-badge--selected" : ""}`}
+                    >
                       <div className="team-badge__top">
                         <p className="team-badge__name">{team.name}</p>
                         {isSelected && <span className="team-badge__pill">Atual</span>}
@@ -204,7 +332,8 @@ export function TeamsPage() {
 
                       <p className="team-badge__meta">
                         {team.membersCount} membro{team.membersCount === 1 ? "" : "s"} ·{" "}
-                        {team.incidentsCount} incidente{team.incidentsCount === 1 ? "" : "s"}
+                        {team.incidentsCount} incidente
+                        {team.incidentsCount === 1 ? "" : "s"}
                       </p>
                     </div>
                   </li>
@@ -263,7 +392,9 @@ export function TeamsPage() {
           {user && (
             <>
               <label className="teams-field">
-                <span className="teams-field__label">Seleciona a tua equipa principal</span>
+                <span className="teams-field__label">
+                  Seleciona a tua equipa principal
+                </span>
                 <select
                   className="teams-field__select"
                   value={selectedTeamId}

@@ -1,31 +1,61 @@
+// src/incidents/incidents.service.ts
+
 import {
   BadRequestException,
   Injectable,
   NotFoundException,
   ForbiddenException,
-} from '@nestjs/common';
+} from "@nestjs/common";
 import {
   IncidentStatus,
   Severity,
   TimelineEventType,
   Prisma,
-} from '@prisma/client';
-import { PrismaService } from '../prisma/prisma.service';
-import { CreateIncidentDto } from './dto/create-incident.dto';
-import { UpdateIncidentDto } from './dto/update-incident.dto';
-import { ChangeStatusDto } from './dto/change-status.dto';
-import { AddCommentDto } from './dto/add-comment.dto';
-import { ListIncidentsDto } from './dto/list-incidents.dto';
-import { NotificationsService } from '../notifications/notifications.service';
-import { ensureIncidentAuditHash } from '../audit/incident-audit';
+} from "@prisma/client";
+import { PrismaService } from "../prisma/prisma.service";
+import { CreateIncidentDto } from "./dto/create-incident.dto";
+import { UpdateIncidentDto } from "./dto/update-incident.dto";
+import { ChangeStatusDto } from "./dto/change-status.dto";
+import { AddCommentDto } from "./dto/add-comment.dto";
+import { ListIncidentsDto } from "./dto/list-incidents.dto";
+import { NotificationsService } from "../notifications/notifications.service";
+import { ensureIncidentAuditHash } from "../audit/incident-audit";
+
+/**
+ * @file src/incidents/incidents.service.ts
+ * @module Backend.Incidents.Service
+ *
+ * @summary
+ * Serviço de domínio para Incidents: criação, leitura, update, workflow (status),
+ * comentários, timeline, subscriptions e delete.
+ *
+ * @description
+ * Principais responsabilidades:
+ * - Criar incidentes e inicializar timeline + subscription do reporter
+ * - Listar e filtrar incidentes
+ * - Carregar detalhe completo (includes)
+ * - Atualizar campos (assignee/team/severity/service/categories/tags) com eventos na timeline
+ * - Validar transições de status com regras explícitas
+ * - Criar comentários e eventos de timeline associados
+ * - Gerir subscrições de notificações por incidente
+ * - Apagar incidente (regra: apenas reporter)
+ *
+ * Integrações/side-effects:
+ * - Notificações (Discord/PagerDuty) em incidentes críticos (SEV1/SEV2) e mudanças de status
+ * - Audit hash (best-effort) após mutações relevantes (AUDIT_HMAC_SECRET)
+ */
 
 @Injectable()
 export class IncidentsService {
   constructor(
     private prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
-  ) { }
+  ) {}
 
+  /**
+   * Recalcula e persiste o audit hash (best-effort).
+   * - Se falhar, não interrompe a operação principal.
+   */
   private async refreshAuditHash(incidentId: string) {
     try {
       await ensureIncidentAuditHash(
@@ -38,6 +68,10 @@ export class IncidentsService {
     }
   }
 
+  /**
+   * Valida se a transição de status atual -> próximo status é permitida.
+   * Lança BadRequestException em transições inválidas.
+   */
   private validateStatusTransition(current: IncidentStatus, next: IncidentStatus) {
     const allowed: Record<IncidentStatus, IncidentStatus[]> = {
       NEW: [IncidentStatus.TRIAGED, IncidentStatus.IN_PROGRESS],
@@ -63,32 +97,55 @@ export class IncidentsService {
     }
   }
 
+  /**
+   * Mapeia um status para o campo timestamp correspondente no Incident:
+   * - TRIAGED     -> triagedAt
+   * - IN_PROGRESS -> inProgressAt
+   * - RESOLVED    -> resolvedAt
+   * - CLOSED      -> closedAt
+   *
+   * @returns chave de Prisma.IncidentUpdateInput ou undefined para status sem timestamp
+   */
   private getStatusTimestampField(
     status: IncidentStatus,
   ): keyof Prisma.IncidentUpdateInput | undefined {
     switch (status) {
       case IncidentStatus.TRIAGED:
-        return 'triagedAt';
+        return "triagedAt";
       case IncidentStatus.IN_PROGRESS:
-        return 'inProgressAt';
+        return "inProgressAt";
       case IncidentStatus.RESOLVED:
-        return 'resolvedAt';
+        return "resolvedAt";
       case IncidentStatus.CLOSED:
-        return 'closedAt';
+        return "closedAt";
       default:
         return undefined;
     }
   }
 
+  /**
+   * Resolve o service principal (primaryServiceId) a partir de:
+   * - primaryServiceId (id)
+   * - primaryServiceKey (key)
+   *
+   * Regras:
+   * - Se for passada string vazia em id/key, devolve null (interpretação: remover service)
+   * - Se existir referência mas não existir service na DB, lança BadRequestException
+   *
+   * @returns
+   * - undefined: não alterar service
+   * - null: remover (disconnect)
+   * - string: id resolvido válido
+   */
   private async resolvePrimaryServiceId(input?: {
     primaryServiceId?: string;
     primaryServiceKey?: string;
   }): Promise<string | null | undefined> {
     if (!input) return undefined;
 
-    if (input.primaryServiceId !== undefined && input.primaryServiceId.trim() === '')
+    if (input.primaryServiceId !== undefined && input.primaryServiceId.trim() === "")
       return null;
-    if (input.primaryServiceKey !== undefined && input.primaryServiceKey.trim() === '')
+    if (input.primaryServiceKey !== undefined && input.primaryServiceKey.trim() === "")
       return null;
 
     if (input.primaryServiceId) {
@@ -96,7 +153,7 @@ export class IncidentsService {
         where: { id: input.primaryServiceId },
         select: { id: true },
       });
-      if (!svc) throw new BadRequestException('Service not found (primaryServiceId)');
+      if (!svc) throw new BadRequestException("Service not found (primaryServiceId)");
       return svc.id;
     }
 
@@ -105,13 +162,23 @@ export class IncidentsService {
         where: { key: input.primaryServiceKey },
         select: { id: true },
       });
-      if (!svc) throw new BadRequestException('Service not found (primaryServiceKey)');
+      if (!svc) throw new BadRequestException("Service not found (primaryServiceKey)");
       return svc.id;
     }
 
     return undefined;
   }
 
+  /**
+   * Cria um incidente:
+   * - status inicial NEW
+   * - cria evento de timeline STATUS_CHANGE para NEW
+   * - cria subscription do reporter
+   * - se service definido, cria evento FIELD_UPDATE ("Serviço definido: ...")
+   * - se severidade SEV1/SEV2, dispara notificações Discord + PagerDuty e regista resultado na timeline
+   *
+   * No final, recalcula audit hash (best-effort).
+   */
   async create(dto: CreateIncidentDto, reporterId: string) {
     const resolvedServiceId = await this.resolvePrimaryServiceId({
       primaryServiceId: dto.primaryServiceId,
@@ -132,15 +199,15 @@ export class IncidentsService {
           : undefined,
       categories: dto.categoryIds
         ? {
-          create: dto.categoryIds.map((categoryId) => ({
-            category: { connect: { id: categoryId } },
-          })),
-        }
+            create: dto.categoryIds.map((categoryId) => ({
+              category: { connect: { id: categoryId } },
+            })),
+          }
         : undefined,
       tags: dto.tagIds
         ? {
-          connect: dto.tagIds.map((tagId) => ({ id: tagId })),
-        }
+            connect: dto.tagIds.map((tagId) => ({ id: tagId })),
+          }
         : undefined,
     };
 
@@ -162,7 +229,7 @@ export class IncidentsService {
           type: TimelineEventType.STATUS_CHANGE,
           fromStatus: null,
           toStatus: IncidentStatus.NEW,
-          message: 'Incidente criado',
+          message: "Incidente criado",
         },
       });
 
@@ -176,19 +243,20 @@ export class IncidentsService {
             incidentId: created.id,
             authorId: reporterId,
             type: TimelineEventType.FIELD_UPDATE,
-            message: `Serviço definido: ${created.primaryService?.name ?? 'Service'}`,
+            message: `Serviço definido: ${created.primaryService?.name ?? "Service"}`,
           },
         });
       }
 
+      // Notificações apenas para SEV1/SEV2
       if (created.severity === Severity.SEV1 || created.severity === Severity.SEV2) {
         const shortId = created.id.slice(0, 8).toUpperCase();
-        const service = created.primaryService?.name ?? '—';
-        const team = created.team?.name ?? '—';
+        const service = created.primaryService?.name ?? "—";
+        const team = created.team?.name ?? "—";
         const owner =
           created.assignee?.name ??
           created.assignee?.email ??
-          'Sem owner';
+          "Sem owner";
 
         const url = process.env.FRONTEND_BASE_URL
           ? `${process.env.FRONTEND_BASE_URL}/incidents/${created.id}`
@@ -201,7 +269,7 @@ export class IncidentsService {
           `• Serviço: **${service}**\n` +
           `• Equipa: **${team}**\n` +
           `• Owner: **${owner}**\n` +
-          (url ? `• Link: ${url}` : '');
+          (url ? `• Link: ${url}` : "");
 
         const discord = await this.notificationsService.sendDiscord(msg);
 
@@ -216,7 +284,7 @@ export class IncidentsService {
             incidentId: created.id,
             authorId: reporterId,
             type: TimelineEventType.FIELD_UPDATE,
-            message: `Notificações: Discord=${discord.ok ? 'OK' : 'FAIL'} | PagerDuty=${pagerduty.ok ? 'OK' : 'FAIL'}`,
+            message: `Notificações: Discord=${discord.ok ? "OK" : "FAIL"} | PagerDuty=${pagerduty.ok ? "OK" : "FAIL"}`,
           },
         });
       }
@@ -228,6 +296,13 @@ export class IncidentsService {
     return incident;
   }
 
+  /**
+   * Lista incidentes com filtros.
+   * - status, severity, assigneeId, teamId, primaryServiceId
+   * - primaryServiceKey resolve para id (se não existir, devolve [])
+   * - search faz contains (case-insensitive) em title/description
+   * - createdFrom/createdTo fazem filtro por createdAt
+   */
   async findAll(query: ListIncidentsDto) {
     const where: Prisma.IncidentWhereInput = {};
 
@@ -249,8 +324,8 @@ export class IncidentsService {
 
     if (query.search) {
       where.OR = [
-        { title: { contains: query.search, mode: 'insensitive' } },
-        { description: { contains: query.search, mode: 'insensitive' } },
+        { title: { contains: query.search, mode: "insensitive" } },
+        { description: { contains: query.search, mode: "insensitive" } },
       ];
     }
 
@@ -262,7 +337,7 @@ export class IncidentsService {
 
     return this.prisma.incident.findMany({
       where,
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
       include: {
         reporter: true,
         assignee: true,
@@ -272,6 +347,10 @@ export class IncidentsService {
     });
   }
 
+  /**
+   * Carrega detalhe completo de um incidente (includes ricos).
+   * Lança NotFoundException se não existir.
+   */
   async findOne(id: string) {
     const incident = await this.prisma.incident.findUnique({
       where: { id },
@@ -282,13 +361,13 @@ export class IncidentsService {
         primaryService: { include: { ownerTeam: true } },
         categories: { include: { category: true } },
         tags: true,
-        capas: { orderBy: { createdAt: 'asc' }, include: { owner: true } },
+        capas: { orderBy: { createdAt: "asc" }, include: { owner: true } },
         comments: {
-          orderBy: { createdAt: 'asc' },
+          orderBy: { createdAt: "asc" },
           include: { author: true },
         },
         timeline: {
-          orderBy: { createdAt: 'asc' },
+          orderBy: { createdAt: "asc" },
           include: { author: true },
         },
         sources: {
@@ -297,10 +376,21 @@ export class IncidentsService {
       },
     });
 
-    if (!incident) throw new NotFoundException('Incident not found');
+    if (!incident) throw new NotFoundException("Incident not found");
     return incident;
   }
 
+  /**
+   * Constrói `Prisma.IncidentUpdateInput` e calcula diffs (changes) para timeline.
+   *
+   * Side-effects:
+   * - Se dto.categoryIds existir, apaga CategoryOnIncident antes e depois recria via data.categories.create.
+   * - Se dto.tagIds existir, substitui via `set`.
+   *
+   * @returns
+   * - data: objeto para update
+   * - changes: flags para gerar eventos de timeline coerentes
+   */
   private async prepareUpdateData(
     id: string,
     incident: {
@@ -367,7 +457,7 @@ export class IncidentsService {
           where: { id: resolvedServiceId },
           select: { name: true },
         });
-        changes.serviceNameForMessage = svc?.name ?? 'Service';
+        changes.serviceNameForMessage = svc?.name ?? "Service";
       }
     }
 
@@ -395,6 +485,10 @@ export class IncidentsService {
     return { data, changes };
   }
 
+  /**
+   * Gera eventos de timeline (FIELD_UPDATE / ASSIGNMENT) com base nos diffs calculados.
+   * Se não houver eventos específicos mas houver outras mudanças, gera um "Campos atualizados".
+   */
   private generateUpdateEvents(
     userId: string,
     u: any, // Updated incident
@@ -415,14 +509,18 @@ export class IncidentsService {
         authorId: userId,
         type: TimelineEventType.FIELD_UPDATE,
         message: u.primaryServiceId
-          ? `Serviço atualizado: ${changes.serviceNameForMessage ?? u.primaryService?.name ?? 'Service'}`
-          : 'Serviço removido',
+          ? `Serviço atualizado: ${
+              changes.serviceNameForMessage ??
+              u.primaryService?.name ??
+              "Service"
+            }`
+          : "Serviço removido",
       });
     }
 
     if (changes.assigneeChanged) {
       const label =
-        u.assignee?.name?.trim() ? u.assignee.name : u.assignee?.email ?? 'unknown';
+        u.assignee?.name?.trim() ? u.assignee.name : u.assignee?.email ?? "unknown";
 
       events.push({
         incidentId: u.id,
@@ -430,7 +528,7 @@ export class IncidentsService {
         type: TimelineEventType.ASSIGNMENT,
         message: u.assigneeId
           ? `Responsável atualizado: ${label}`
-          : 'Responsável removido',
+          : "Responsável removido",
       });
     }
 
@@ -448,13 +546,19 @@ export class IncidentsService {
         incidentId: u.id,
         authorId: userId,
         type: TimelineEventType.FIELD_UPDATE,
-        message: 'Campos atualizados',
+        message: "Campos atualizados",
       });
     }
 
     return events;
   }
 
+  /**
+   * Atualiza um incidente:
+   * - calcula updateData + diffs
+   * - executa update + criação de timeline events em transação
+   * - atualiza audit hash (best-effort)
+   */
   async update(id: string, dto: UpdateIncidentDto, userId: string) {
     const incident = await this.prisma.incident.findUnique({
       where: { id },
@@ -468,7 +572,7 @@ export class IncidentsService {
         primaryServiceId: true,
       },
     });
-    if (!incident) throw new NotFoundException('Incident not found');
+    if (!incident) throw new NotFoundException("Incident not found");
 
     const { data, changes } = await this.prepareUpdateData(id, incident, dto);
 
@@ -496,9 +600,17 @@ export class IncidentsService {
     return updated;
   }
 
+  /**
+   * Muda o status do incidente:
+   * - valida transição
+   * - atualiza status
+   * - seta timestamp do status (se ainda não existia)
+   * - cria evento STATUS_CHANGE na timeline
+   * - se SEV1/SEV2, envia notificação para Discord e regista resultado na timeline
+   */
   async changeStatus(id: string, dto: ChangeStatusDto, userId: string) {
     const incident = await this.prisma.incident.findUnique({ where: { id } });
-    if (!incident) throw new NotFoundException('Incident not found');
+    if (!incident) throw new NotFoundException("Incident not found");
 
     const from = incident.status;
     const to = dto.newStatus;
@@ -535,7 +647,7 @@ export class IncidentsService {
           incidentId: id,
           authorId: userId,
           type: TimelineEventType.FIELD_UPDATE,
-          message: `Notificação de status: Discord=${discord.ok ? 'OK' : 'FAIL'}`,
+          message: `Notificação de status: Discord=${discord.ok ? "OK" : "FAIL"}`,
         },
       });
     }
@@ -544,9 +656,15 @@ export class IncidentsService {
     return updated;
   }
 
+  /**
+   * Adiciona comentário:
+   * - cria IncidentComment
+   * - cria timeline event COMMENT com a mesma mensagem
+   * - atualiza audit hash (best-effort)
+   */
   async addComment(id: string, dto: AddCommentDto, userId: string) {
     const incident = await this.prisma.incident.findUnique({ where: { id } });
-    if (!incident) throw new NotFoundException('Incident not found');
+    if (!incident) throw new NotFoundException("Incident not found");
 
     const [comment] = await this.prisma.$transaction([
       this.prisma.incidentComment.create({
@@ -566,22 +684,34 @@ export class IncidentsService {
     return comment;
   }
 
+  /**
+   * Lista comentários do incidente (ASC) com include de author.
+   */
   async listComments(id: string) {
     return this.prisma.incidentComment.findMany({
       where: { incidentId: id },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: "asc" },
       include: { author: true },
     });
   }
 
+  /**
+   * Lista timeline events do incidente (ASC) com include de author.
+   */
   async listTimeline(id: string) {
     return this.prisma.incidentTimelineEvent.findMany({
       where: { incidentId: id },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: "asc" },
       include: { author: true },
     });
   }
 
+  /**
+   * Subscreve o utilizador às notificações do incidente.
+   * - evita duplicados (findFirst)
+   * - cria timeline event FIELD_UPDATE
+   * - atualiza audit hash
+   */
   async subscribe(id: string, userId: string) {
     const existing = await this.prisma.notificationSubscription.findFirst({
       where: { userId, incidentId: id },
@@ -598,7 +728,7 @@ export class IncidentsService {
         incidentId: id,
         authorId: userId,
         type: TimelineEventType.FIELD_UPDATE,
-        message: 'Subscrição de notificações ativada',
+        message: "Subscrição de notificações ativada",
       },
     });
 
@@ -606,6 +736,12 @@ export class IncidentsService {
     return { subscribed: true };
   }
 
+  /**
+   * Remove subscrição do utilizador.
+   * - deleteMany para garantir remoção mesmo se houver inconsistência
+   * - cria timeline event FIELD_UPDATE
+   * - atualiza audit hash
+   */
   async unsubscribe(id: string, userId: string) {
     await this.prisma.notificationSubscription.deleteMany({
       where: { userId, incidentId: id },
@@ -616,7 +752,7 @@ export class IncidentsService {
         incidentId: id,
         authorId: userId,
         type: TimelineEventType.FIELD_UPDATE,
-        message: 'Subscrição de notificações desativada',
+        message: "Subscrição de notificações desativada",
       },
     });
 
@@ -624,12 +760,25 @@ export class IncidentsService {
     return { subscribed: false };
   }
 
+  /**
+   * Apaga incidente e relações dependentes.
+   *
+   * Regra de autorização:
+   * - apenas o reporter (incident.reporterId) pode apagar
+   *
+   * Remove:
+   * - comments
+   * - timeline events
+   * - subscriptions
+   * - categoryOnIncident
+   * - incident
+   */
   async delete(id: string, userId: string) {
     const incident = await this.prisma.incident.findUnique({ where: { id } });
-    if (!incident) throw new NotFoundException('Incident not found');
+    if (!incident) throw new NotFoundException("Incident not found");
 
     if (incident.reporterId !== userId) {
-      throw new ForbiddenException('Only the reporter can delete this incident');
+      throw new ForbiddenException("Only the reporter can delete this incident");
     }
 
     await this.prisma.$transaction([

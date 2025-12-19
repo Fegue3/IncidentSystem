@@ -1,11 +1,34 @@
+// src/incidents/dto/create-incident.dto.ts
+
+/**
+ * @file src/incidents/dto/create-incident.dto.ts
+ * @module Backend.Incidents.DTO.CreateIncidentDto
+ *
+ * @summary
+ * DTO de criação de incidente.
+ *
+ * @description
+ * Permite criar um incidente com:
+ * - título/descrição (obrigatórios)
+ * - severidade opcional (default é aplicado no service: SEV3)
+ * - ligações opcionais a assignee, team, e service (por id ou por key)
+ * - categorias e tags (arrays de ids)
+ *
+ * @validation
+ * - title, description: string não vazia
+ * - severity: enum Severity (opcional)
+ * - assigneeId, teamId, primaryServiceId, primaryServiceKey: string (opcionais)
+ * - categoryIds, tagIds: arrays opcionais de string
+ */
+
 import {
   IsArray,
   IsEnum,
   IsNotEmpty,
   IsOptional,
   IsString,
-} from 'class-validator';
-import { Severity } from '@prisma/client';
+} from "class-validator";
+import { Severity } from "@prisma/client";
 
 export class CreateIncidentDto {
   @IsString()
@@ -28,12 +51,12 @@ export class CreateIncidentDto {
   @IsOptional()
   teamId?: string;
 
-  //serviço afetado (principal)
+  // serviço afetado (principal)
   @IsString()
   @IsOptional()
   primaryServiceId?: string;
 
-  //alternativa por key (mais amigável com seed)
+  // alternativa por key (mais amigável com seed)
   @IsString()
   @IsOptional()
   primaryServiceKey?: string;

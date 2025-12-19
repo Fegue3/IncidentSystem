@@ -1,3 +1,20 @@
+/**
+ * @file test/unit/incidents.service.service-link.spec.ts
+ * @module tests/unit/incidents-service-service-link
+ *
+ * @summary
+ *  - Testes unitários do comportamento de ligação/desligação do primaryService no IncidentsService.
+ *
+ * @description
+ *  - Valida:
+ *    - create: resolve primaryServiceKey para serviceId e conecta
+ *    - update: disconnect quando primaryServiceId é string vazia
+ *    - create: erro quando primaryServiceKey não existe
+ *
+ * @dependencies
+ *  - PrismaService é mockado (inclui transação e tx client).
+ *  - NotificationsService é mockado (não é o foco aqui).
+ */
 import { Test } from '@nestjs/testing';
 import { IncidentsService } from '../../src/incidents/incidents.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
@@ -8,40 +25,23 @@ describe('IncidentsService - primaryService linking (unit)', () => {
   let service: IncidentsService;
 
   const tx = {
-    incident: {
-      create: jest.fn(),
-      update: jest.fn(),
-    },
-    service: {
-      findUnique: jest.fn(),
-    },
-    incidentTimelineEvent: {
-      create: jest.fn(),
-      createMany: jest.fn(), // ✅ FIX
-    },
-    notificationSubscription: {
-      create: jest.fn(),
-    },
-    categoryOnIncident: {
-      deleteMany: jest.fn(),
-    },
+    incident: { create: jest.fn(), update: jest.fn() },
+    service: { findUnique: jest.fn() },
+    incidentTimelineEvent: { create: jest.fn(), createMany: jest.fn() },
+    notificationSubscription: { create: jest.fn() },
+    categoryOnIncident: { deleteMany: jest.fn() },
   };
 
   const prisma = {
     $transaction: jest.fn((cb: any) => cb(tx)),
-    incident: {
-      findUnique: jest.fn(),
-    },
-    service: {
-      findUnique: jest.fn(),
-    },
-    categoryOnIncident: {
-      deleteMany: jest.fn(),
-    },
+    incident: { findUnique: jest.fn() },
+    service: { findUnique: jest.fn() },
+    categoryOnIncident: { deleteMany: jest.fn() },
   };
 
   beforeEach(async () => {
     jest.clearAllMocks();
+
     const moduleRef = await Test.createTestingModule({
       providers: [
         IncidentsService,
@@ -59,7 +59,7 @@ describe('IncidentsService - primaryService linking (unit)', () => {
     service = moduleRef.get(IncidentsService);
   });
 
-  it('create() should connect primaryService by key', async () => {
+  it('create() conecta primaryService por key', async () => {
     prisma.service.findUnique.mockResolvedValueOnce({ id: 'svc1' });
     tx.incident.create.mockResolvedValueOnce({
       id: 'inc1',
@@ -87,7 +87,7 @@ describe('IncidentsService - primaryService linking (unit)', () => {
     expect(res.id).toBe('inc1');
   });
 
-  it('update() should disconnect primaryService when empty string', async () => {
+  it('update() desconecta primaryService quando primaryServiceId é string vazia', async () => {
     prisma.incident.findUnique.mockResolvedValueOnce({
       id: 'inc1',
       title: 't',
@@ -104,24 +104,18 @@ describe('IncidentsService - primaryService linking (unit)', () => {
       primaryService: null,
     });
 
-    const res = await service.update(
-      'inc1',
-      { primaryServiceId: '' } as any,
-      'user1',
-    );
+    const res = await service.update('inc1', { primaryServiceId: '' } as any, 'user1');
 
     const updateArgs = tx.incident.update.mock.calls[0][0];
     expect(updateArgs.data.primaryService).toEqual({ disconnect: true });
     expect(res.primaryServiceId).toBeNull();
   });
 
-  it('create() should throw if primaryServiceKey does not exist', async () => {
+  it('create() lança erro se primaryServiceKey não existir', async () => {
     prisma.service.findUnique.mockResolvedValueOnce(null);
+
     await expect(
-      service.create(
-        { title: 't', description: 'd', primaryServiceKey: 'nope' } as any,
-        'user1',
-      ),
+      service.create({ title: 't', description: 'd', primaryServiceKey: 'nope' } as any, 'user1'),
     ).rejects.toThrow('Service not found (primaryServiceKey)');
   });
 });

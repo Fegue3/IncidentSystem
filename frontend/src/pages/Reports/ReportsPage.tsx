@@ -1,3 +1,37 @@
+/**
+ * @file ReportsPage.tsx
+ * @module pages/Reports/ReportsPage
+ *
+ * @summary
+ *  - Página de relatórios: KPIs, breakdown, tendência (timeseries) e exportações (CSV/PDF),
+ *    incluindo PDF por incidente a partir do histórico.
+ *
+ * @description
+ *  - Responsabilidades principais:
+ *    - Carregar e mostrar KPIs (`/reports/kpis`)
+ *    - Carregar e mostrar breakdown (`/reports/breakdown`) com `groupBy`
+ *    - Carregar e mostrar tendência (`/reports/timeseries`) com `interval`
+ *    - Carregar histórico de incidentes (`/incidents`) para tabela + export PDF por incidente
+ *    - Aplicar filtros (data, equipa, serviço, severidade) e exportações
+ *
+ * @dependencies
+ *  - `recharts`: gráficos (AreaChart)
+ *  - `ReportsAPI`: KPIs, breakdown, timeseries, export CSV/PDF
+ *  - `TeamsAPI`: equipas do utilizador (para filtro)
+ *  - `ServicesAPI`: serviços (para filtro)
+ *  - `IncidentsAPI`: histórico (para tabela e export por incidente)
+ *
+ * @security
+ *  - As chamadas são autenticadas via services (`api/auth` no wrapper). O backend valida permissões.
+ *
+ * @errors
+ *  - Erros de IO são apresentados em `err` e renderizados no UI.
+ *
+ * @performance
+ *  - `loadAll()` faz `Promise.all` para carregar datasets em paralelo.
+ *  - `useMemo` para filtros e histórico filtrado.
+ */
+
 import { useEffect, useMemo, useState } from "react";
 import {
   Area,
@@ -11,11 +45,12 @@ import {
 import "./ReportsPage.css";
 import {
   ReportsAPI,
+  type ReportsFilters,
   type ReportsGroupBy,
   type ReportsInterval,
 } from "../../services/reports";
 import { TeamsAPI } from "../../services/teams";
-import { ServicesAPI } from "../../services/services";
+import { ServicesAPI, type ServiceLite } from "../../services/services";
 import {
   IncidentsAPI,
   type IncidentSummary,
@@ -23,22 +58,67 @@ import {
   getSeverityLabel,
 } from "../../services/incidents";
 
-function toISODateOnly(d: Date) {
+/* ----------------------------- Tipos locais ----------------------------- */
+
+type TeamOption = { id: string; name: string };
+type ServiceOption = { id: string; name: string };
+
+type ReportsKpis = {
+  openCount: number;
+  resolvedCount: number;
+  closedCount: number;
+  mttrSeconds?: {
+    avg: number | null;
+    median: number | null;
+    p90: number | null;
+  } | null;
+  slaCompliancePct?: number | null;
+};
+
+type ReportsBreakdownItem = {
+  key: string;
+  label: string;
+  count: number;
+};
+
+type ReportsTimeseriesPoint = {
+  date: string; // ISO date string
+  count: number;
+};
+
+/* ----------------------------- Helpers locais ---------------------------- */
+
+/**
+ * Converte Date para string `YYYY-MM-DD` (para inputs type="date").
+ */
+function toISODateOnly(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-// datas do input date => range completo (UTC via ISO)
-function toRangeIso(fromDate: string, toDate: string) {
+/**
+ * Converte datas do input `date` para ISO range completo.
+ * - `fromDate` -> `T00:00:00.000Z`
+ * - `toDate` -> `T23:59:59.999Z`
+ */
+function toRangeIso(fromDate: string, toDate: string): {
+  fromIso?: string;
+  toIso?: string;
+} {
   const fromIso = fromDate
     ? new Date(`${fromDate}T00:00:00.000`).toISOString()
     : undefined;
+
   const toIso = toDate
     ? new Date(`${toDate}T23:59:59.999`).toISOString()
     : undefined;
+
   return { fromIso, toIso };
 }
 
-function secondsToHuman(s: number | null) {
+/**
+ * Converte segundos (ex.: MTTR) para string humana.
+ */
+function secondsToHuman(s: number | null): string {
   if (s === null) return "—";
   if (s < 60) return `${Math.round(s)}s`;
   const mins = s / 60;
@@ -47,7 +127,10 @@ function secondsToHuman(s: number | null) {
   return `${hours.toFixed(1)} h`;
 }
 
-function safeFilename(name: string) {
+/**
+ * Sanitiza texto para usar em filenames.
+ */
+function safeFilename(name: string): string {
   return name
     .trim()
     .slice(0, 60)
@@ -56,6 +139,9 @@ function safeFilename(name: string) {
     .toLowerCase();
 }
 
+/**
+ * Trigger de download de um Blob no browser.
+ */
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -67,15 +153,64 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+/**
+ * Extrai mensagem “humana” de um erro desconhecido.
+ */
+function getErrorMessage(e: unknown, fallback: string): string {
+  if (e instanceof Error) return e.message;
+
+  if (typeof e === "object" && e !== null && "message" in e) {
+    const msg = (e as Record<string, unknown>).message;
+    if (typeof msg === "string") return msg;
+    if (Array.isArray(msg)) return msg.map(String).join(", ");
+    return String(msg);
+  }
+
+  return fallback;
+}
+
+/**
+ * Permite tolerar respostas `{ items: [...] }` ou `[...]` sem usar `any`.
+ */
+function extractItemsArray<T>(value: unknown): T[] {
+  if (Array.isArray(value)) return value as T[];
+
+  if (typeof value === "object" && value !== null) {
+    const obj = value as Record<string, unknown>;
+    if (Array.isArray(obj.items)) return obj.items as T[];
+  }
+
+  return [];
+}
+
+/* ----------------------------- Guards de select -------------------------- */
+
+const SEVERITIES = ["SEV1", "SEV2", "SEV3", "SEV4"] as const;
+function isSeverityCode(v: string): v is SeverityCode {
+  return (SEVERITIES as readonly string[]).includes(v);
+}
+
+const GROUP_BYS = ["severity", "team", "service", "category", "assignee"] as const;
+function isReportsGroupBy(v: string): v is ReportsGroupBy {
+  return (GROUP_BYS as readonly string[]).includes(v);
+}
+
+const INTERVALS = ["day", "week"] as const;
+function isReportsInterval(v: string): v is ReportsInterval {
+  return (INTERVALS as readonly string[]).includes(v);
+}
+
+/* ------------------------------------------------------------------------ */
+
 export function ReportsPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
 
-  const [teams, setTeams] = useState<{ id: string; name: string }[]>([]);
-  const [services, setServices] = useState<{ id: string; name: string }[]>([]);
+  const [teams, setTeams] = useState<TeamOption[]>([]);
+  const [services, setServices] = useState<ServiceOption[]>([]);
 
-  // ✅ default: LIFETIME (vazio = sem range)
+  // default: LIFETIME (vazio = sem range)
   const [from, setFrom] = useState<string>("");
   const [to, setTo] = useState<string>("");
 
@@ -86,11 +221,14 @@ export function ReportsPage() {
   const [groupBy, setGroupBy] = useState<ReportsGroupBy>("severity");
   const [interval, setInterval] = useState<ReportsInterval>("day");
 
-  const [kpis, setKpis] = useState<any>(null);
-  const [breakdown, setBreakdown] = useState<any[]>([]);
-  const [series, setSeries] = useState<any[]>([]);
+  const [kpis, setKpis] = useState<ReportsKpis | null>(null);
+  const [breakdown, setBreakdown] = useState<ReportsBreakdownItem[]>([]);
+  const [series, setSeries] = useState<ReportsTimeseriesPoint[]>([]);
   const [history, setHistory] = useState<IncidentSummary[]>([]);
 
+  /**
+   * Define range para os últimos N dias (inclui hoje).
+   */
   function setLastDays(days: number) {
     const t = new Date();
     const f = new Date();
@@ -99,44 +237,60 @@ export function ReportsPage() {
     setTo(toISODateOnly(t));
   }
 
+  /**
+   * Remove range (lifetime).
+   */
   function setLifetime() {
     setFrom("");
     setTo("");
   }
 
+  /**
+   * Limpa filtros e recarrega resultados sem filtros.
+   */
   function clearFilters() {
-    // volta ao default (lifetime + "todas")
     setFrom("");
     setTo("");
     setTeamId("");
     setServiceId("");
     setSeverity("");
 
-    // se quiseres que isto NÃO resete estes 2, apaga as linhas abaixo
+    // Se quiseres que isto NÃO resete estes 2, remove as linhas abaixo.
     setGroupBy("severity");
     setInterval("day");
 
-    // carrega logo sem filtros
     void loadAll({
       from: undefined,
       to: undefined,
       teamId: undefined,
       serviceId: undefined,
-      severity: undefined as any,
+      severity: undefined,
     });
   }
 
-  const filters = useMemo(() => {
+  /**
+   * Filtros normalizados para o formato esperado pelo ReportsAPI.
+   * - `from/to`: ISO completo (ou undefined)
+   * - `teamId/serviceId/severity`: undefined quando vazios
+   */
+  const filters = useMemo<ReportsFilters>(() => {
     const { fromIso, toIso } = toRangeIso(from, to);
+
+    const sev: SeverityCode | undefined = severity ? severity : undefined;
+
     return {
       from: fromIso,
       to: toIso,
       teamId: teamId || undefined,
       serviceId: serviceId || undefined,
-      severity: (severity || undefined) as any,
+      severity: sev,
     };
   }, [from, to, teamId, serviceId, severity]);
 
+  /**
+   * Histórico filtrado localmente por data (para tabela).
+   * (Mesmo que o backend não aplique from/to ao endpoint de incidents.)
+   */
   const filteredHistory = useMemo(() => {
     const { fromIso, toIso } = toRangeIso(from, to);
     const fromTs = fromIso ? new Date(fromIso).getTime() : null;
@@ -150,19 +304,28 @@ export function ReportsPage() {
     });
   }, [history, from, to]);
 
-  async function loadAll(overrideFilters?: {
-    from?: string;
-    to?: string;
-    teamId?: string;
-    serviceId?: string;
-    severity?: any;
-  }) {
+  /**
+   * Carrega todos os datasets do ecrã em paralelo:
+   * - KPIs
+   * - breakdown
+   * - timeseries
+   * - histórico de incidentes (para a tabela)
+   *
+   * @param overrideFilters Opcional: filtros explícitos para esta execução.
+   */
+  async function loadAll(
+    overrideFilters?: Partial<ReportsFilters> & { severity?: SeverityCode },
+  ) {
     setLoading(true);
     setErr(null);
 
     try {
-      const f = overrideFilters ?? filters;
+      const f: ReportsFilters = {
+        ...filters,
+        ...overrideFilters,
+      };
 
+      // Para a tabela de histórico, usamos o endpoint de incidents com filtros equivalentes.
       const listParams = {
         teamId: f.teamId,
         primaryServiceId: f.serviceId,
@@ -170,46 +333,65 @@ export function ReportsPage() {
       };
 
       const [k, b, s, h] = await Promise.all([
-        ReportsAPI.kpis(f),
-        ReportsAPI.breakdown({ ...f, groupBy }),
-        ReportsAPI.timeseries({ ...f, interval }),
+        ReportsAPI.kpis(f) as Promise<unknown>,
+        ReportsAPI.breakdown({ ...f, groupBy }) as Promise<unknown>,
+        ReportsAPI.timeseries({ ...f, interval }) as Promise<unknown>,
         IncidentsAPI.list(listParams),
       ]);
 
-      setKpis(k);
-      setBreakdown(b);
-      setSeries(s);
+      setKpis(k as ReportsKpis);
+      setBreakdown(extractItemsArray<ReportsBreakdownItem>(b));
+      setSeries(extractItemsArray<ReportsTimeseriesPoint>(s));
 
       setHistory(
         h.sort(
-          (a, b) =>
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
         ),
       );
-    } catch (e: any) {
-      setErr(e?.message ?? "Erro ao carregar relatórios");
+    } catch (e: unknown) {
+      setErr(getErrorMessage(e, "Erro ao carregar relatórios"));
     } finally {
       setLoading(false);
     }
   }
 
+  /**
+   * Inicialização:
+   * - carrega opções de filtros (equipas/serviços)
+   * - carrega os dados do dashboard
+   */
   useEffect(() => {
     (async () => {
       try {
         const [t, svcs] = await Promise.all([
-          TeamsAPI.listMine(),
-          ServicesAPI.list(),
+          TeamsAPI.listMine() as Promise<unknown>,
+          ServicesAPI.list() as Promise<unknown>,
         ]);
-        setTeams((t as any).items ?? (t as any));
-        setServices((svcs as any).items ?? (svcs as any));
+
+        const teamList = extractItemsArray<TeamOption>(t).map((x) => ({
+          id: x.id,
+          name: x.name,
+        }));
+
+        const serviceList = extractItemsArray<ServiceLite>(svcs).map((x) => ({
+          id: x.id,
+          name: x.name,
+        }));
+
+        setTeams(teamList);
+        setServices(serviceList);
       } catch {
-        // não bloqueia
+        // não bloqueia a página
       }
+
       await loadAll();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /**
+   * Rótulo para downloads baseado no intervalo selecionado.
+   */
   function rangeLabel() {
     if (from && to) return `${from}_a_${to}`;
     if (from && !to) return `${from}_a_hoje`;
@@ -217,35 +399,47 @@ export function ReportsPage() {
     return "lifetime";
   }
 
+  /**
+   * Exporta CSV do relatório (aplica filtros atuais).
+   */
   async function onExportCsv() {
     try {
       const blob = await ReportsAPI.exportCsv(filters);
       downloadBlob(blob, `relatorio-incidentes_${rangeLabel()}.csv`);
-    } catch (e: any) {
-      setErr(e?.message ?? "Falha ao exportar CSV");
+    } catch (e: unknown) {
+      setErr(getErrorMessage(e, "Falha ao exportar CSV"));
     }
   }
 
+  /**
+   * Exporta PDF do relatório (aplica filtros atuais).
+   */
   async function onExportPdf() {
     try {
       const blob = await ReportsAPI.exportPdf(filters);
       downloadBlob(blob, `relatorio-incidentes_${rangeLabel()}.pdf`);
-    } catch (e: any) {
-      setErr(e?.message ?? "Falha ao exportar PDF");
+    } catch (e: unknown) {
+      setErr(getErrorMessage(e, "Falha ao exportar PDF"));
     }
   }
 
+  /**
+   * Exporta PDF completo de um incidente (detalhes + timeline).
+   */
   async function onExportIncidentPdf(incidentId: string, title: string) {
     try {
       const blob = await ReportsAPI.exportPdf({ incidentId });
-      downloadBlob(
-        blob,
-        `incidente_${safeFilename(title)}_${incidentId.slice(0, 8)}.pdf`,
-      );
-    } catch (e: any) {
-      setErr(e?.message ?? "Falha ao exportar PDF do incidente");
+      downloadBlob(blob, `incidente_${safeFilename(title)}_${incidentId.slice(0, 8)}.pdf`);
+    } catch (e: unknown) {
+      setErr(getErrorMessage(e, "Falha ao exportar PDF do incidente"));
     }
   }
+
+  /**
+   * Heurística para aplicar estilo de erro na mensagem global (quando aplicável).
+   * (Ideal: distinguir estado success/error explicitamente.)
+   */
+  const hasError = !!err;
 
   return (
     <div className="reports">
@@ -256,12 +450,10 @@ export function ReportsPage() {
           <div>
             <h1 className="reports__title">Relatórios e Métricas</h1>
             <p className="reports__subtitle">
-              KPIs, tendências e exportações. O PDF por incidente inclui
-              detalhes + timeline.
+              KPIs, tendências e exportações. O PDF por incidente inclui detalhes + timeline.
               <br />
               <span style={{ color: "#6b7280" }}>
-                Dica: se deixares <b>De</b> e <b>Até</b> vazios, é{" "}
-                <b>lifetime</b>.
+                Dica: se deixares <b>De</b> e <b>Até</b> vazios, é <b>lifetime</b>.
               </span>
             </p>
           </div>
@@ -292,27 +484,22 @@ export function ReportsPage() {
             <div className="reports-filters__row">
               <label className="reports-field">
                 <span>De</span>
-                <input
-                  type="date"
-                  value={from}
-                  onChange={(e) => setFrom(e.target.value)}
-                />
+                <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
               </label>
 
               <label className="reports-field">
                 <span>Até</span>
-                <input
-                  type="date"
-                  value={to}
-                  onChange={(e) => setTo(e.target.value)}
-                />
+                <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
               </label>
 
               <label className="reports-field">
                 <span>Severidade</span>
                 <select
                   value={severity}
-                  onChange={(e) => setSeverity(e.target.value as any)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setSeverity(isSeverityCode(v) ? v : "");
+                  }}
                 >
                   <option value="">Todas</option>
                   <option value="SEV1">SEV1</option>
@@ -336,10 +523,7 @@ export function ReportsPage() {
 
               <label className="reports-field">
                 <span>Serviço</span>
-                <select
-                  value={serviceId}
-                  onChange={(e) => setServiceId(e.target.value)}
-                >
+                <select value={serviceId} onChange={(e) => setServiceId(e.target.value)}>
                   <option value="">Todos</option>
                   {services.map((s) => (
                     <option key={s.id} value={s.id}>
@@ -353,7 +537,13 @@ export function ReportsPage() {
             <div className="reports-filters__row">
               <label className="reports-field">
                 <span>Agrupar por</span>
-                <select value={groupBy} onChange={(e) => setGroupBy(e.target.value as any)}>
+                <select
+                  value={groupBy}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (isReportsGroupBy(v)) setGroupBy(v);
+                  }}
+                >
                   <option value="severity">Severidade</option>
                   <option value="team">Equipa</option>
                   <option value="service">Serviço</option>
@@ -364,18 +554,32 @@ export function ReportsPage() {
 
               <label className="reports-field">
                 <span>Intervalo</span>
-                <select value={interval} onChange={(e) => setInterval(e.target.value as any)}>
+                <select
+                  value={interval}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (isReportsInterval(v)) setInterval(v);
+                  }}
+                >
                   <option value="day">Dia</option>
                   <option value="week">Semana</option>
                 </select>
               </label>
 
               <div className="reports-actions">
-                <button className="btn btn--secondary" type="button" onClick={() => setLastDays(7)}>
+                <button
+                  className="btn btn--secondary"
+                  type="button"
+                  onClick={() => setLastDays(7)}
+                >
                   Últimos 7d
                 </button>
 
-                <button className="btn btn--secondary" type="button" onClick={() => setLastDays(30)}>
+                <button
+                  className="btn btn--secondary"
+                  type="button"
+                  onClick={() => setLastDays(30)}
+                >
                   Últimos 30d
                 </button>
 
@@ -383,7 +587,6 @@ export function ReportsPage() {
                   Lifetime
                 </button>
 
-                {/* ✅ NOVO: limpar filtros */}
                 <button
                   className="btn btn--secondary"
                   type="button"
@@ -404,10 +607,10 @@ export function ReportsPage() {
               </div>
             </div>
 
-            {err ? <div className="reports-error">{err}</div> : null}
+            {hasError ? <div className="reports-error">{err}</div> : null}
           </div>
         </section>
-      ) : err ? (
+      ) : hasError ? (
         <section className="reports-card">
           <div className="reports-error">{err}</div>
         </section>
@@ -418,8 +621,8 @@ export function ReportsPage() {
           <h2 className="reports-card__title">KPIs</h2>
 
           <p className="reports-help">
-            <b>MTTR</b> = tempo até resolver. <b>avg/median/p90</b> = média /
-            mediana / 90% abaixo deste valor.
+            <b>MTTR</b> = tempo até resolver. <b>avg/median/p90</b> = média / mediana / 90%
+            abaixo deste valor.
             <br />
             <b>SLA</b> = % resolvidos dentro do alvo por severidade.
           </p>
@@ -446,9 +649,9 @@ export function ReportsPage() {
               <div className="kpi kpi--wide">
                 <div className="kpi__label">MTTR (avg / median / p90)</div>
                 <div className="kpi__value kpi__value--small">
-                  {secondsToHuman(kpis.mttrSeconds?.avg)} /{" "}
-                  {secondsToHuman(kpis.mttrSeconds?.median)} /{" "}
-                  {secondsToHuman(kpis.mttrSeconds?.p90)}
+                  {secondsToHuman(kpis.mttrSeconds?.avg ?? null)} /{" "}
+                  {secondsToHuman(kpis.mttrSeconds?.median ?? null)} /{" "}
+                  {secondsToHuman(kpis.mttrSeconds?.p90 ?? null)}
                 </div>
               </div>
 
@@ -530,7 +733,7 @@ export function ReportsPage() {
                       borderRadius: "10px",
                       boxShadow: "0 10px 26px rgba(0,0,0,0.08)",
                     }}
-                    labelFormatter={(val) => new Date(val).toLocaleDateString()}
+                    labelFormatter={(val) => new Date(String(val)).toLocaleDateString()}
                   />
 
                   <Area
@@ -552,9 +755,7 @@ export function ReportsPage() {
         <h2 className="reports-card__title">Histórico de Incidentes</h2>
 
         {filteredHistory.length === 0 ? (
-          <div className="reports-muted">
-            Sem incidentes no intervalo selecionado.
-          </div>
+          <div className="reports-muted">Sem incidentes no intervalo selecionado.</div>
         ) : (
           <div className="history-table-container">
             <table className="reports-table">
@@ -579,9 +780,7 @@ export function ReportsPage() {
                     </td>
                     <td>{inc.title}</td>
                     <td>
-                      <span
-                        className={`badge badge--${inc.severity.toLowerCase()}`}
-                      >
+                      <span className={`badge badge--${inc.severity.toLowerCase()}`}>
                         {getSeverityLabel(inc.severity)}
                       </span>
                     </td>
@@ -606,8 +805,8 @@ export function ReportsPage() {
             </table>
 
             <div className="reports-muted reports-muted--mt">
-              Dica: o botão <b>PDF</b> exporta um relatório completo do incidente
-              (detalhes + timeline).
+              Dica: o botão <b>PDF</b> exporta um relatório completo do incidente (detalhes +
+              timeline).
             </div>
           </div>
         )}

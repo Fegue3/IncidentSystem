@@ -1,5 +1,45 @@
-import { createHmac } from 'crypto';
+/**
+ * @file backend/src/audit/incident-audit.ts
+ * @module Backend.Audit.IncidentAudit
+ *
+ * @summary
+ *  - Implementa um mecanismo de integridade para Incident(s) via:
+ *    (1) construção de um payload canónico (determinístico),
+ *    (2) serialização estável (stableStringify),
+ *    (3) hash HMAC-SHA256 com segredo server-side,
+ *    (4) persistência do hash no próprio incidente (auditHash, auditHashUpdatedAt).
+ *
+ * @description
+ *  Este módulo suporta auditoria/compliance ao permitir detetar alterações no estado do incidente
+ *  e nas relações relevantes (timeline, comments, tags, categories, CAPA e sources).
+ *
+ *  O design foca-se em determinismo:
+ *   - chaves de objetos são ordenadas
+ *   - arrays são ordenados por chaves estáveis
+ *   - Date é normalizado para ISO
+ *   - BigInt é convertido para string
+ *   - estruturas cíclicas lançam erro (não se faz hash de payload inválido)
+ *
+ * @integration
+ *  Fluxo típico:
+ *   - Após mutações relevantes do incidente (status, severity, assignee, comments, timeline, etc.),
+ *     chama-se `ensureIncidentAuditHash(prisma, incidentId, secret)` para recalcular e persistir o hash.
+ *
+ * @security
+ *  - O segredo deve vir de env/config (ex.: AUDIT_HMAC_SECRET) e nunca deve ser exposto ao cliente.
+ *  - A rotação de segredo invalida recomputações retroativas (se não houver versionamento).
+ *
+ * @notes
+ *  - O payload canónico não inclui `updatedAt` do incidente, porque Prisma atualiza esse campo
+ *    quando se escreve auditHash, o que causaria mismatches imediatos.
+ */
 
+import { createHmac } from "crypto";
+
+/**
+ * Interface mínima do Prisma usada pelo audit.
+ * Isto facilita testes unitários (mock de prisma) e reduz acoplamento.
+ */
 export type PrismaLike = {
   incident: {
     findUnique: (args: any) => Promise<any | null>;
@@ -7,16 +47,24 @@ export type PrismaLike = {
   };
 };
 
+/**
+ * Normaliza datas para ISO (UTC) ou null.
+ * Aceita Date ou valores compatíveis com new Date(...).
+ * Retorna null para inputs inválidos.
+ */
 function iso(d: any): string | null {
   if (d === null || d === undefined) return null;
   const dt = d instanceof Date ? d : new Date(d);
   return Number.isFinite(dt.getTime()) ? dt.toISOString() : null;
 }
 
+/**
+ * Converte um valor para string estável (null-safe).
+ * Usado para ordenação determinística.
+ */
 function sortKey(v: any): string {
-  // stable, null-safe, deterministic
-  if (v === null || v === undefined) return '';
-  return typeof v === 'string' ? v : String(v);
+  if (v === null || v === undefined) return "";
+  return typeof v === "string" ? v : String(v);
 }
 
 /**
@@ -25,18 +73,25 @@ function sortKey(v: any): string {
  * - preserves array order
  * - handles Date/BigInt safely
  * - throws on cycles (so you never silently hash nonsense)
+ *
+ * @param value valor a serializar
+ * @returns string canónica determinística
+ * @throws Error se detetar estrutura circular
  */
 export function stableStringify(value: any): string {
   return stableStringifyInternal(value, new WeakSet());
 }
 
+/**
+ * Implementação interna de stableStringify com detecção de ciclos via WeakSet.
+ */
 function stableStringifyInternal(value: any, seen: WeakSet<object>): string {
-  if (value === null || value === undefined) return 'null';
+  if (value === null || value === undefined) return "null";
 
   const t = typeof value;
 
-  if (t === 'bigint') return JSON.stringify(value.toString());
-  if (t !== 'object') return JSON.stringify(value);
+  if (t === "bigint") return JSON.stringify(value.toString());
+  if (t !== "object") return JSON.stringify(value);
 
   if (value instanceof Date) {
     // Use ISO to avoid locale differences
@@ -44,32 +99,51 @@ function stableStringifyInternal(value: any, seen: WeakSet<object>): string {
   }
 
   if (Array.isArray(value)) {
-    return `[${value.map((v) => stableStringifyInternal(v, seen)).join(',')}]`;
+    return `[${value.map((v) => stableStringifyInternal(v, seen)).join(",")}]`;
   }
 
   // cycle detection
   if (seen.has(value)) {
-    throw new Error('stableStringify: circular structure');
+    throw new Error("stableStringify: circular structure");
   }
   seen.add(value);
 
   const keys = Object.keys(value).sort((a, b) => a.localeCompare(b));
   const out = `{${keys
-    .map((k) => `${JSON.stringify(k)}:${stableStringifyInternal(value[k], seen)}`)
-    .join(',')}}`;
+    .map((k) => `${JSON.stringify(k)}:${stableStringifyInternal((value as any)[k], seen)}`)
+    .join(",")}}`;
 
   seen.delete(value);
   return out;
 }
 
+/**
+ * Calcula HMAC-SHA256 em hex.
+ *
+ * @param secret segredo server-side (obrigatório)
+ * @param payload string (obrigatório), tipicamente o resultado de stableStringify(payloadObj)
+ * @returns hash hex string
+ * @throws Error se secret ou payload forem inválidos/omissos
+ */
 export function computeHmacSha256Hex(secret: string, payload: string): string {
-  if (!secret) throw new Error('computeHmacSha256Hex: secret is required');
+  if (!secret) throw new Error("computeHmacSha256Hex: secret is required");
   if (payload === null || payload === undefined)
-    throw new Error('computeHmacSha256Hex: payload is required');
+    throw new Error("computeHmacSha256Hex: payload is required");
 
-  return createHmac('sha256', secret).update(payload, 'utf8').digest('hex');
+  return createHmac("sha256", secret).update(payload, "utf8").digest("hex");
 }
 
+/**
+ * Constrói o payload canónico do incidente para hashing.
+ *
+ * Regras importantes:
+ * - Normaliza datas para ISO
+ * - Ordena coleções por chaves estáveis
+ * - Não inclui updatedAt do incidente (para evitar mismatches após update de auditHash)
+ *
+ * @param incident incidente já carregado com includes/relações relevantes
+ * @returns objeto canónico pronto para stableStringify
+ */
 export function buildIncidentAuditPayload(incident: any) {
   const categories = (incident.categories ?? [])
     .map((x: any) => ({
@@ -160,7 +234,7 @@ export function buildIncidentAuditPayload(incident: any) {
 
       createdAt: iso(incident.createdAt),
 
-      // ⚠️ DO NOT include updatedAt:
+      // Do not include updatedAt:
       // Prisma updates updatedAt when writing auditHash, which would cause immediate mismatches.
     },
     categories,
@@ -172,6 +246,15 @@ export function buildIncidentAuditPayload(incident: any) {
   };
 }
 
+/**
+ * Calcula o audit hash de um incidente, lendo o estado atual da DB.
+ *
+ * @param prisma prisma-like client (findUnique)
+ * @param incidentId id do incidente
+ * @param secret segredo HMAC
+ * @returns { hash, canonical, payloadObj }
+ * @throws Error se o incidente não existir ou se payload for inválido
+ */
 export async function computeIncidentAuditHash(
   prisma: PrismaLike,
   incidentId: string,
@@ -183,7 +266,7 @@ export async function computeIncidentAuditHash(
       categories: { include: { category: { select: { id: true, name: true } } } },
       tags: { select: { id: true, label: true } },
       timeline: {
-        orderBy: { createdAt: 'asc' },
+        orderBy: { createdAt: "asc" },
         select: {
           id: true,
           type: true,
@@ -195,11 +278,11 @@ export async function computeIncidentAuditHash(
         },
       },
       comments: {
-        orderBy: { createdAt: 'asc' },
+        orderBy: { createdAt: "asc" },
         select: { id: true, body: true, authorId: true, createdAt: true },
       },
       capas: {
-        orderBy: { createdAt: 'asc' },
+        orderBy: { createdAt: "asc" },
         select: {
           id: true,
           action: true,
@@ -217,7 +300,7 @@ export async function computeIncidentAuditHash(
   });
 
   if (!incident) {
-    throw new Error('Incident not found for audit');
+    throw new Error("Incident not found for audit");
   }
 
   const payloadObj = buildIncidentAuditPayload(incident);
@@ -227,6 +310,21 @@ export async function computeIncidentAuditHash(
   return { hash, canonical, payloadObj };
 }
 
+/**
+ * Garante que o incidente tem auditHash atualizado (se houver secret).
+ *
+ * Comportamento:
+ * - se secret não existir -> retorna null (audit desativado)
+ * - senão:
+ *    - calcula hash do estado atual
+ *    - persiste auditHash e auditHashUpdatedAt (now)
+ *    - retorna o hash
+ *
+ * @param prisma prisma-like client (findUnique + update)
+ * @param incidentId id do incidente
+ * @param secret segredo HMAC (opcional)
+ * @returns hash (string) ou null se secret não fornecido
+ */
 export async function ensureIncidentAuditHash(
   prisma: PrismaLike,
   incidentId: string,

@@ -1,8 +1,47 @@
+/**
+ * @file IntegrationsPage.tsx
+ * @module pages/Integrations/IntegrationsPage
+ *
+ * @summary
+ *  - Página informativa de integrações (Datadog, PagerDuty, Discord) com estado “sempre ativo”.
+ *
+ * @description
+ *  - Esta versão do produto apresenta integrações como “ativas” por defeito e **sem configuração por utilizador**.
+ *  - Mostra cards com:
+ *    - nome e descrição do conector
+ *    - link para documentação externa (quando existe)
+ *    - toggle desativado (UI apenas) para indicar que está sempre ativo
+ *
+ * @dependencies
+ *  - React `useMemo`: memoização da lista estática de integrações (evita recriar array em cada render).
+ *  - `./IntegrationsPage.css`: layout e estilos dos cards/toggles/pills.
+ *
+ * @security
+ *  - Sem chamadas HTTP e sem dados sensíveis.
+ *  - Links externos abrem em nova tab com `rel="noreferrer"` (boa prática).
+ *
+ * @errors
+ *  - Não aplicável (sem IO).
+ *
+ * @performance
+ *  - Lista memoizada (O(1) por render) e renderização simples.
+ *
+ * @notes
+ *  - `notificationsEnabled` existe no tipo mas nesta versão a UI está bloqueada (sempre ativo).
+ *    Se futuramente quiserem configurar por utilizador, ligar isto a um endpoint/config store.
+ */
+
 import { useMemo } from "react";
 import "./IntegrationsPage.css";
 
+/**
+ * IDs suportados para integrações nesta versão.
+ */
 type IntegrationId = "datadog" | "pagerduty" | "discord";
 
+/**
+ * Config estática de uma integração exibida na UI.
+ */
 type IntegrationConfig = {
   id: IntegrationId;
   name: string;
@@ -11,6 +50,12 @@ type IntegrationConfig = {
   notificationsEnabled: boolean;
 };
 
+/**
+ * Página de integrações.
+ *
+ * @remarks
+ * - Nesta versão, integrações são apresentadas como ativas e “read-only”.
+ */
 export function IntegrationsPage() {
   const integrations = useMemo<IntegrationConfig[]>(
     () => [
@@ -37,7 +82,7 @@ export function IntegrationsPage() {
         notificationsEnabled: true,
       },
     ],
-    []
+    [],
   );
 
   return (
@@ -73,18 +118,14 @@ export function IntegrationsPage() {
 
               <div className="integration-card__rowText">
                 <div className="integration-card__hintTitle">Enviar notificações</div>
-                <div className="integration-card__hint">
-                  Sempre ativo nesta versão.
-                </div>
+                <div className="integration-card__hint">Sempre ativo nesta versão.</div>
               </div>
             </div>
 
             <div className="integration-card__body">
               <div className="integration-card__status-line">
                 <span className="pill pill--on">Notificações ativas</span>
-                <span className="integration-card__meta">
-                  Configuração bloqueada
-                </span>
+                <span className="integration-card__meta">Configuração bloqueada</span>
               </div>
 
               {item.docsUrl ? (

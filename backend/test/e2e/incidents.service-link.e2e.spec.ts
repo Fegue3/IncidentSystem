@@ -1,3 +1,23 @@
+/**
+ * @file incidents.service-link.e2e.spec.ts
+ * @module test/e2e/incidents.service-link.e2e
+ *
+ * @summary
+ *  - Testes E2E para associação de Incident <-> Service (primaryService).
+ *
+ * @description
+ *  Valida que:
+ *  - é possível criar incidente com `primaryServiceKey`;
+ *  - é possível trocar o serviço via PATCH;
+ *  - é possível remover o serviço (primaryServiceId null);
+ *  - GET do incidente inclui o objeto `primaryService`;
+ *  - listagem filtra por `primaryServiceKey`.
+ *
+ * @notes
+ *  - O `resetDb` do helper E2E pode não limpar a tabela Service (dependendo do schema),
+ *    por isso esta suite faz `ctx.prisma.service.deleteMany({})` explicitamente.
+ */
+
 import request from 'supertest';
 import { bootstrapE2E, resetDb, registerUser } from './_helpers/e2e-utils';
 
@@ -8,7 +28,7 @@ describe('Incidents primaryService (e2e)', () => {
     const ctx = await ctxPromise;
     await resetDb(ctx.prisma);
 
-    // ✅ como o resetDb do e2e-utils não apaga Service, limpamos aqui
+    // Nota: se o resetDb do e2e-utils não apagar Service, limpamos aqui
     await ctx.prisma.service.deleteMany({});
 
     const team = await ctx.prisma.team.create({ data: { name: 'IT Ops' } });
@@ -20,6 +40,7 @@ describe('Incidents primaryService (e2e)', () => {
       data: { key: 'public-api', name: 'Public API', isActive: true },
     });
 
+    // Seed simples para garantir utilizador/equipa no estado base (se necessário por scoping)
     await ctx.prisma.user.create({
       data: {
         email: 'seed@local',
@@ -39,7 +60,7 @@ describe('Incidents primaryService (e2e)', () => {
   it('create -> update service -> remove service', async () => {
     const ctx = await ctxPromise;
 
-    // ✅ password forte para passar validação do DTO
+    // Password forte para passar validação do DTO
     const { accessToken } = await registerUser(ctx.http, 'i@e2e.local', 'StrongPass1!', 'Inc User');
 
     const created = await request(ctx.http)

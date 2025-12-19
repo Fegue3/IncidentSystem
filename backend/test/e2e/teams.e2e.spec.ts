@@ -1,3 +1,23 @@
+/**
+ * @file teams.e2e.spec.ts
+ * @module test/e2e/teams.e2e
+ *
+ * @summary
+ *  - Testes E2E para CRUD de equipas, gestão de membros e endpoint `/teams/me`.
+ *
+ * @description
+ *  Valida que um utilizador autenticado consegue:
+ *  - criar equipa;
+ *  - listar equipas;
+ *  - adicionar/remover membros;
+ *  - consultar members;
+ *  - obter “minhas equipas” via `/api/teams/me`;
+ *  - atualizar e apagar equipa.
+ *
+ * @security
+ *  - Endpoints exigem token: valida 401 sem token.
+ */
+
 import request from 'supertest';
 import { bootstrapE2E, resetDb, registerUser } from './_helpers/e2e-utils';
 
@@ -86,7 +106,6 @@ describe('Teams (e2e)', () => {
 
   it('teams endpoints -> 401 sem token', async () => {
     const ctx = await ctxP;
-
     await request(ctx.http).get('/api/teams').expect(401);
   });
 });

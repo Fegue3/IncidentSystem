@@ -1,3 +1,31 @@
+/**
+ * @file HomePage.tsx
+ * @module pages/HomePage/HomePage
+ *
+ * @summary
+ *  - Página principal (dashboard) que apresenta a visão geral dos incidentes ativos,
+ *    em investigação e resolvidos.
+ *
+ * @description
+ *  - Funções principais:
+ *    - Carrega dados do utilizador autenticado (`UsersAPI.me`).
+ *    - Carrega lista de serviços (`ServicesAPI.list`) para filtros.
+ *    - Carrega lista de incidentes (`IncidentsAPI.list`) aplicando filtros locais.
+ *    - Mostra incidentes agrupados por estado (open, investigating, resolved).
+ *
+ * @dependencies
+ *  - `UsersAPI`: obtém utilizador atual.
+ *  - `ServicesAPI`: lista de serviços ativos (para filtro).
+ *  - `IncidentsAPI`: incidentes filtrados e ordenados por severidade/data.
+ *
+ * @security
+ *  - Todas as chamadas dependem de autenticação (JWT via context).
+ *
+ * @performance
+ *  - Carregamentos paralelos e memorização de filtros locais.
+ *  - Re-render controlado apenas quando filtros mudam.
+ */
+
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "./HomePage.css";
@@ -6,6 +34,7 @@ import {
   IncidentsAPI,
   type IncidentSummary,
   type IncidentStatus,
+  type SeverityCode,
   getSeverityShortLabel,
   getSeverityOrder,
 } from "../../services/incidents";
@@ -13,27 +42,36 @@ import { ServicesAPI, type ServiceLite } from "../../services/services";
 
 const TEAM_STORAGE_KEY = "selectedTeamId";
 
+/**
+ * Página principal com visão geral dos incidentes.
+ */
 export function HomePage() {
+  // Perfil do utilizador
   const [me, setMe] = useState<Me | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [profileError, setProfileError] = useState<string | null>(null);
 
+  // Lista de incidentes
   const [incidents, setIncidents] = useState<IncidentSummary[]>([]);
   const [loadingIncidents, setLoadingIncidents] = useState(true);
   const [incidentsError, setIncidentsError] = useState<string | null>(null);
 
   // Filtros locais
-  const [filterSeverity, setFilterSeverity] = useState<string>("");
-  const [filterStatus, setFilterStatus] = useState<string>("");
+  const [filterSeverity, setFilterSeverity] = useState<SeverityCode | "">("");
+  const [filterStatus, setFilterStatus] = useState<IncidentStatus | "">("");
   const [filterServiceKey, setFilterServiceKey] = useState<string>("");
   const [searchText, setSearchText] = useState<string>("");
 
+  // Lista de serviços para dropdown
   const [services, setServices] = useState<ServiceLite[]>([]);
   const [loadingServices, setLoadingServices] = useState<boolean>(false);
   const [servicesError, setServicesError] = useState<string | null>(null);
 
   const navigate = useNavigate();
 
+  /* ---------------------------------------------------------------------- */
+  /* Perfil do utilizador                                                   */
+  /* ---------------------------------------------------------------------- */
   useEffect(() => {
     let active = true;
 
@@ -46,7 +84,7 @@ export function HomePage() {
       })
       .catch((e: unknown) => {
         const msg =
-          e instanceof Error ? e.message : "Erro a carregar o teu perfil";
+          e instanceof Error ? e.message : "Erro a carregar o teu perfil.";
         if (active) setProfileError(msg);
       })
       .finally(() => {
@@ -58,28 +96,36 @@ export function HomePage() {
     };
   }, []);
 
-  // carregar lista de serviços para dropdown
+  /* ---------------------------------------------------------------------- */
+  /* Lista de serviços (para filtros)                                       */
+  /* ---------------------------------------------------------------------- */
   useEffect(() => {
     let active = true;
+
     async function loadServices() {
+      setLoadingServices(true);
+      setServicesError(null);
       try {
-        setLoadingServices(true);
-        setServicesError(null);
         const list = await ServicesAPI.list({ isActive: true });
         if (active) setServices(list);
       } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : "Erro a carregar serviços";
+        const msg =
+          e instanceof Error ? e.message : "Erro a carregar lista de serviços.";
         if (active) setServicesError(msg);
       } finally {
         if (active) setLoadingServices(false);
       }
     }
+
     loadServices();
     return () => {
       active = false;
     };
   }, []);
 
+  /* ---------------------------------------------------------------------- */
+  /* Lista de incidentes com filtros aplicados                              */
+  /* ---------------------------------------------------------------------- */
   useEffect(() => {
     let active = true;
 
@@ -93,17 +139,18 @@ export function HomePage() {
       try {
         const data = await IncidentsAPI.list({
           teamId: selectedTeamId,
-          severity: filterSeverity ? (filterSeverity as any) : undefined,
-          status: filterStatus ? (filterStatus as any) : undefined,
+          severity: filterSeverity || undefined,
+          status: filterStatus || undefined,
           primaryServiceKey: filterServiceKey || undefined,
           search: searchText || undefined,
         });
+
         if (active) setIncidents(data);
       } catch (e: unknown) {
         const msg =
           e instanceof Error
             ? e.message
-            : "Erro a carregar a lista de incidentes";
+            : "Erro ao carregar a lista de incidentes.";
         if (active) setIncidentsError(msg);
       } finally {
         if (active) setLoadingIncidents(false);
@@ -111,43 +158,32 @@ export function HomePage() {
     }
 
     loadIncidents();
-
     return () => {
       active = false;
     };
   }, [filterSeverity, filterStatus, filterServiceKey, searchText]);
 
+  /* ---------------------------------------------------------------------- */
+  /* Helpers e render utils                                                 */
+  /* ---------------------------------------------------------------------- */
   const displayName = me?.name ?? me?.email ?? "Operador";
 
-  function truncate(text: string, max: number) {
-    if (text.length <= max) return text;
-    return text.slice(0, max) + "…";
-  }
-
-  function renderTitle(text: string) {
-    return truncate(text, 34);
-  }
-
-  function renderDescription(text: string) {
-    return truncate(text, 90);
+  function truncate(text: string, max: number): string {
+    return text.length <= max ? text : text.slice(0, max) + "…";
   }
 
   function sortIncidents(list: IncidentSummary[]): IncidentSummary[] {
     return [...list].sort((a, b) => {
       const sa = getSeverityOrder(a.severity);
       const sb = getSeverityOrder(b.severity);
-
       if (sa !== sb) return sa - sb;
 
-      const da = new Date(a.createdAt).getTime();
-      const db = new Date(b.createdAt).getTime();
-      return da - db;
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
     });
   }
 
-  function byStatuses(statuses: IncidentStatus[]) {
-    const filtered = incidents.filter((i) => statuses.includes(i.status));
-    return sortIncidents(filtered);
+  function byStatuses(statuses: IncidentStatus[]): IncidentSummary[] {
+    return sortIncidents(incidents.filter((i) => statuses.includes(i.status)));
   }
 
   const openIncidents = byStatuses(["NEW", "TRIAGED"]);
@@ -178,6 +214,9 @@ export function HomePage() {
     return truncate(s.name, 42);
   }
 
+  /* ---------------------------------------------------------------------- */
+  /* Card de incidente                                                      */
+  /* ---------------------------------------------------------------------- */
   function IncidentCard({ incident }: { incident: IncidentSummary }) {
     return (
       <button
@@ -185,9 +224,8 @@ export function HomePage() {
         className="incident-card"
         onClick={() => handleIncidentClick(incident.id)}
       >
-        {/* Linha 1: título + chips */}
         <div className="incident-card__top">
-          <p className="incident-card__title">{renderTitle(incident.title)}</p>
+          <p className="incident-card__title">{truncate(incident.title, 34)}</p>
 
           <div className="incident-card__chips">
             <span
@@ -206,20 +244,17 @@ export function HomePage() {
           </div>
         </div>
 
-        {/* Linha 2: SERVIÇO (antes da descrição) */}
         <div className="incident-card__service-row">
           <span className="incident-card__service-pill">
             {incident.primaryService ? renderService(incident) : "Sem serviço"}
           </span>
         </div>
 
-        {/* Linha 3: descrição */}
         <p className="incident-card__desc">
           <span className="incident-card__desc-label">Descrição:</span>{" "}
-          {renderDescription(incident.description)}
+          {truncate(incident.description, 90)}
         </p>
 
-        {/* Linha 4: meta */}
         <div className="incident-card__footer">
           <span className="incident-card__meta-item">
             <span className="incident-card__meta-label">Owner:</span>{" "}
@@ -243,6 +278,9 @@ export function HomePage() {
     );
   }
 
+  /* ---------------------------------------------------------------------- */
+  /* Render principal                                                       */
+  /* ---------------------------------------------------------------------- */
   return (
     <section className="dashboard">
       <header className="dashboard__header">
@@ -274,38 +312,53 @@ export function HomePage() {
         </div>
       </header>
 
+      {/* Filtros */}
       <section className="dashboard__filters" aria-label="Filtros de incidentes">
         <span className="dashboard__filters-label">Filtros</span>
         <div className="dashboard__filters-group">
+          {/* Estado */}
           <select
             className="dashboard__filter-input"
             value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
+            onChange={(e) =>
+              setFilterStatus(e.target.value as IncidentStatus | "")
+            }
             title="Filtrar por estado"
           >
             <option value="">Estado (todos)</option>
-            <option value="NEW">NEW</option>
-            <option value="TRIAGED">TRIAGED</option>
-            <option value="IN_PROGRESS">IN_PROGRESS</option>
-            <option value="ON_HOLD">ON_HOLD</option>
-            <option value="RESOLVED">RESOLVED</option>
-            <option value="CLOSED">CLOSED</option>
-            <option value="REOPENED">REOPENED</option>
+            {[
+              "NEW",
+              "TRIAGED",
+              "IN_PROGRESS",
+              "ON_HOLD",
+              "RESOLVED",
+              "CLOSED",
+              "REOPENED",
+            ].map((st) => (
+              <option key={st} value={st}>
+                {st}
+              </option>
+            ))}
           </select>
 
+          {/* Severidade */}
           <select
             className="dashboard__filter-input"
             value={filterSeverity}
-            onChange={(e) => setFilterSeverity(e.target.value)}
+            onChange={(e) =>
+              setFilterSeverity(e.target.value as SeverityCode | "")
+            }
             title="Filtrar por severidade"
           >
             <option value="">Severidade (todas)</option>
-            <option value="SEV1">SEV1</option>
-            <option value="SEV2">SEV2</option>
-            <option value="SEV3">SEV3</option>
-            <option value="SEV4">SEV4</option>
+            {["SEV1", "SEV2", "SEV3", "SEV4"].map((sev) => (
+              <option key={sev} value={sev}>
+                {sev}
+              </option>
+            ))}
           </select>
 
+          {/* Serviço */}
           <select
             className="dashboard__filter-input"
             value={filterServiceKey}
@@ -322,6 +375,7 @@ export function HomePage() {
             ))}
           </select>
 
+          {/* Pesquisa */}
           <input
             className="dashboard__filter-input"
             placeholder="Pesquisar título/descrição"
@@ -330,151 +384,107 @@ export function HomePage() {
             title="Pesquisa"
           />
         </div>
-        <button
-          type="button"
-          className="dashboard__auto-refresh"
-          onClick={() => window.location.reload()}
-          title="Atualizar manual"
-        >
-          Atualizar
-        </button>
       </section>
 
+      {/* Estados de carregamento/erro */}
       <div className="dashboard__status-area">
         {loadingProfile && (
           <p className="dashboard__status">A carregar dados do perfil…</p>
         )}
-
         {profileError && (
           <p className="dashboard__status dashboard__status--error" role="alert">
             {profileError}
           </p>
         )}
-
+        {servicesError && (
+          <p className="dashboard__status dashboard__status--error" role="alert">
+            {servicesError}
+          </p>
+        )}
         {incidentsError && (
           <p className="dashboard__status dashboard__status--error" role="alert">
             {incidentsError}
           </p>
         )}
-
         {loadingIncidents && !incidentsError && (
           <p className="dashboard__status">A carregar incidentes…</p>
         )}
       </div>
 
+      {/* Colunas por estado */}
       <section
         className="dashboard__columns"
         aria-label="Incidentes organizados por estado"
       >
-        <article className="incident-column incident-column--open">
-          <header className="incident-column__header">
-            <div>
-              <h2 className="incident-column__title">
-                Open{" "}
-                <span className="incident-column__counter">
-                  ({openIncidents.length})
-                </span>
-              </h2>
-              <p className="incident-column__hint">
-                Incidentes recém-criados ou ainda à espera de triagem.
-              </p>
-            </div>
-            <span className="incident-column__badge">{openIncidents.length}</span>
-          </header>
-
-          <div className="incident-column__body">
-            {openIncidents.length === 0 && !loadingIncidents && (
-              <p className="incident-column__empty">
-                Nenhum incidente open neste momento.
-              </p>
-            )}
-
-            {openIncidents.length > 0 && (
-              <ul className="incident-list">
-                {openIncidents.map((incident) => (
-                  <li key={incident.id}>
-                    <IncidentCard incident={incident} />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </article>
-
-        <article className="incident-column incident-column--investigating">
-          <header className="incident-column__header">
-            <div>
-              <h2 className="incident-column__title">
-                Investigating{" "}
-                <span className="incident-column__counter">
-                  ({investigatingIncidents.length})
-                </span>
-              </h2>
-              <p className="incident-column__hint">
-                Incidentes em análise ativa pela equipa.
-              </p>
-            </div>
-            <span className="incident-column__badge">
-              {investigatingIncidents.length}
-            </span>
-          </header>
-
-          <div className="incident-column__body">
-            {investigatingIncidents.length === 0 && !loadingIncidents && (
-              <p className="incident-column__empty">
-                Nenhum incidente em investigação neste momento.
-              </p>
-            )}
-
-            {investigatingIncidents.length > 0 && (
-              <ul className="incident-list">
-                {investigatingIncidents.map((incident) => (
-                  <li key={incident.id}>
-                    <IncidentCard incident={incident} />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </article>
-
-        <article className="incident-column incident-column--resolved">
-          <header className="incident-column__header">
-            <div>
-              <h2 className="incident-column__title">
-                Resolved{" "}
-                <span className="incident-column__counter">
-                  ({resolvedIncidents.length})
-                </span>
-              </h2>
-              <p className="incident-column__hint">
-                Incidentes resolvidos que ficam registados para histórico.
-              </p>
-            </div>
-            <span className="incident-column__badge">
-              {resolvedIncidents.length}
-            </span>
-          </header>
-
-          <div className="incident-column__body">
-            {resolvedIncidents.length === 0 && !loadingIncidents && (
-              <p className="incident-column__empty">
-                Ainda não tens incidentes resolvidos.
-              </p>
-            )}
-
-            {resolvedIncidents.length > 0 && (
-              <ul className="incident-list">
-                {resolvedIncidents.map((incident) => (
-                  <li key={incident.id}>
-                    <IncidentCard incident={incident} />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </article>
+        <IncidentColumn
+          title="Open"
+          hint="Incidentes recém-criados ou em triagem."
+          list={openIncidents}
+          loading={loadingIncidents}
+          emptyMessage="Nenhum incidente open neste momento."
+        />
+        <IncidentColumn
+          title="Investigating"
+          hint="Incidentes em análise ativa pela equipa."
+          list={investigatingIncidents}
+          loading={loadingIncidents}
+          emptyMessage="Nenhum incidente em investigação."
+        />
+        <IncidentColumn
+          title="Resolved"
+          hint="Incidentes resolvidos registados para histórico."
+          list={resolvedIncidents}
+          loading={loadingIncidents}
+          emptyMessage="Ainda não tens incidentes resolvidos."
+        />
       </section>
     </section>
   );
+
+  /* ---------------------------------------------------------------------- */
+  /* Sub-componente: coluna de incidentes                                   */
+  /* ---------------------------------------------------------------------- */
+  function IncidentColumn({
+    title,
+    hint,
+    list,
+    loading,
+    emptyMessage,
+  }: {
+    title: string;
+    hint: string;
+    list: IncidentSummary[];
+    loading: boolean;
+    emptyMessage: string;
+  }) {
+    return (
+      <article className={`incident-column incident-column--${title.toLowerCase()}`}>
+        <header className="incident-column__header">
+          <div>
+            <h2 className="incident-column__title">
+              {title}{" "}
+              <span className="incident-column__counter">({list.length})</span>
+            </h2>
+            <p className="incident-column__hint">{hint}</p>
+          </div>
+          <span className="incident-column__badge">{list.length}</span>
+        </header>
+
+        <div className="incident-column__body">
+          {list.length === 0 && !loading && (
+            <p className="incident-column__empty">{emptyMessage}</p>
+          )}
+          {list.length > 0 && (
+            <ul className="incident-list">
+              {list.map((incident) => (
+                <li key={incident.id}>
+                  <IncidentCard incident={incident} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </article>
+    );
+  }
 }

@@ -1,3 +1,16 @@
+// test/unit/users.repository.spec.ts
+/**
+ * Unit tests: UsersRepository
+ *
+ * O que valida:
+ * - findByEmail / findById: delega para prisma.user.findUnique
+ * - create: inclui role apenas quando fornecida
+ * - setRefreshToken / setPassword / setResetToken / clearResetToken: updates corretos
+ * - delete: delega para prisma.user.delete
+ */
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import { UsersRepository } from '../../src/users/users.repository';
 
 describe('UsersRepository (unit)', () => {

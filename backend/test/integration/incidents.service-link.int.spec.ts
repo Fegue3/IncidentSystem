@@ -1,4 +1,21 @@
-// test/integration/incidents.service-link.int.spec.ts
+/**
+ * @file incidents.service-link.int.spec.ts
+ * @module test/integration/incidents.service-link
+ *
+ * @summary
+ *  - Testes de integração para associação de incidentes a serviços (primaryService).
+ *
+ * @description
+ *  Valida regras suportadas pelo IncidentsService:
+ *  - create aceita `primaryServiceKey` e resolve para `primaryServiceId`;
+ *  - update permite alterar `primaryServiceKey`;
+ *  - update permite remover associação quando `primaryServiceId` vem vazio;
+ *  - listagem filtra por `primaryServiceKey`.
+ *
+ * @notes
+ *  - Existe uma função helper `listBy` para tolerar diferenças de naming no service (`list`, `findAll`, `getAll`).
+ */
+
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../../src/app.module';
 import { PrismaService } from '../../src/prisma/prisma.service';
@@ -21,9 +38,10 @@ describe('Incidents primaryService (integration - service)', () => {
       process.env.DATABASE_URL ??
       'postgresql://postgres:postgres@postgres:5432/incidentsdb_test?schema=public';
 
-    // (não é obrigatório aqui, mas mantém consistente com o teu auth.int.spec.ts)
-    process.env.JWT_ACCESS_SECRET = process.env.JWT_ACCESS_SECRET ?? 'super_access_secret';
-    process.env.JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET ?? 'super_refresh_secret';
+    process.env.JWT_ACCESS_SECRET =
+      process.env.JWT_ACCESS_SECRET ?? 'super_access_secret';
+    process.env.JWT_REFRESH_SECRET =
+      process.env.JWT_REFRESH_SECRET ?? 'super_refresh_secret';
 
     mod = await Test.createTestingModule({
       imports: [AppModule],
@@ -39,7 +57,7 @@ describe('Incidents primaryService (integration - service)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
 
-    // seeds para os testes
+    // Seeds de services para os testes
     await prisma.service.create({
       data: { key: 'auth-gateway', name: 'Auth Gateway', isActive: true },
     });
@@ -53,18 +71,25 @@ describe('Incidents primaryService (integration - service)', () => {
     await mod?.close?.();
   });
 
+  /**
+   * Obtém listagem de incidentes de forma tolerante a naming do service.
+   * Mantém o teste robusto se o método público se chamar `list`, `findAll` ou `getAll`.
+   */
   async function listBy(dto: any) {
     const svc: any = incidents as any;
 
-    // tenta nomes comuns de método sem dar erro de TS
     if (typeof svc.list === 'function') return svc.list(dto);
     if (typeof svc.findAll === 'function') return svc.findAll(dto);
     if (typeof svc.getAll === 'function') return svc.getAll(dto);
 
-    // fallback (não devia ser preciso)
+    // Fallback de segurança: filtra diretamente via Prisma
     if (dto?.primaryServiceKey) {
-      const s = await prisma.service.findUnique({ where: { key: dto.primaryServiceKey } });
-      return prisma.incident.findMany({ where: { primaryServiceId: s?.id ?? undefined } });
+      const s = await prisma.service.findUnique({
+        where: { key: dto.primaryServiceKey },
+      });
+      return prisma.incident.findMany({
+        where: { primaryServiceId: s?.id ?? undefined },
+      });
     }
     return prisma.incident.findMany();
   }
@@ -104,7 +129,6 @@ describe('Incidents primaryService (integration - service)', () => {
 
     const target = await prisma.service.findUnique({ where: { key: 'public-api' } });
 
-    // assumes que tens incidents.update(id, dto, userId)
     const updated = await (incidents as any).update(
       created.id,
       { primaryServiceKey: 'public-api' } as any,
@@ -119,7 +143,6 @@ describe('Incidents primaryService (integration - service)', () => {
 
     const svc = await prisma.service.findUnique({ where: { key: 'auth-gateway' } });
 
-    // cria incidente já ligado a um service
     const inc = await prisma.incident.create({
       data: {
         title: 't',
